@@ -1,0 +1,1 @@
+python src/hyper_simulation/question_answer/base_line_lm.py  --enquery_less --enquery_file_path data/trimmed_evidences/trimmed_evidences_popqa_1.json

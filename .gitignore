@@ -2,3 +2,17 @@
 # pixi environments
 .pixi
 *.egg-info
+.vscode/
+data/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.egg
+*.whl
+*.tar.gz
+*.txt
+*.json
+models/
+models/contriever-msmarco

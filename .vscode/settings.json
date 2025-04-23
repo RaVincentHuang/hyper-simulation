@@ -1,3 +1,6 @@
 {
-    "python.defaultInterpreterPath": "/home/vincent/hyper-simulation/.pixi/envs/default/bin/python3.13"
+    "python.defaultInterpreterPath": "/home/vincent/hyper-simulation/.pixi/envs/default/bin/python",
+    "python.analysis.extraPaths": [
+        ".pixi/envs/default/lib/python3.11/site-packages"
+    ],
 }
