@@ -1,4 +1,3 @@
-from html import entities
 from langchain_core.prompts import PromptTemplate
 from langchain_core.prompts import ChatMessagePromptTemplate, HumanMessagePromptTemplate, SystemMessagePromptTemplate, AIMessagePromptTemplate
 

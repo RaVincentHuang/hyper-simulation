@@ -109,3 +109,10 @@ with semaphore:
 class SolvedTask:
 ```
 现在能用的接口是`add_task()`当添加的任务大于`self.task_pool_cnt`时批量执行。
+
+### Show task
+`src/hyper_simulation/question_answer/utils/show_task.py`下
+```
+pixi run show
+```
+可以显示当前的检索问题答案和上下文。
