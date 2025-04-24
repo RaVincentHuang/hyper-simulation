@@ -72,7 +72,7 @@ class SolvedTask:
         self.logger.info(f"Solving file {self.source_path}, solved rates: {self.solved_task_cnt / self.total_cnt * 100}% [{self.solved_task_cnt}/{self.total_cnt}]")
     
     async def build_graph(self, semaphore, question_id: int, id: int, title: str, text: str, prop: str) -> nx.DiGraph | None:
-        if self.is_solved(question_id, id):
+        if self._is_solved(question_id, id):
             return
         # return await build_graph_step_by_step(self.model, title, text, prop, task='popqa')
         async with semaphore:
@@ -88,43 +88,46 @@ class SolvedTask:
         
     
     def add_task(self, question_id: int, id: int, title: str, text: str, prop: str):
-        if self.is_solved(question_id, id):
+        if self._is_solved(question_id, id):
             return
         self.current_tasks.append((question_id, id, title, text, prop))
         if len(self.current_tasks) >= self.task_pool_cnt:
-            prompt_list: list[dict] = []
-            for question_id, id, title, text, prop in self.current_tasks:
-                prompt_list.append({
+            self.unstack_all()
+
+    def unstack_all(self):
+        prompt_list: list[dict] = []
+        for question_id, id, title, text, prop in self.current_tasks:
+            prompt_list.append({
                     # "input_title": title,
                     "input_text": text,
                     # "input_prop": prop
                 })
-            current_str = ", ".join(map(lambda x: f"[Q: {x[0]}, ID: {x[1]}]", self.current_tasks))
+        current_str = ", ".join(map(lambda x: f"[Q: {x[0]}, ID: {x[1]}]", self.current_tasks))
             # tqdm.write(f"Current task: {current_str}")
-            self.logger.info(f"Current task: {current_str}")
-            strat_time = time.time()
-            graphs = build_graph_batch(self.model, prompt_list, task='popqa')
-            end_time = time.time()
+        self.logger.info(f"Current task: {current_str}")
+        strat_time = time.time()
+        graphs = build_graph_batch(self.model, prompt_list, task='popqa')
+        end_time = time.time()
             # tqdm.write(f"[Task pool: {self.task_pool_cnt}]Time cost: {end_time - strat_time} ({end_time - strat_time}/{len(graphs)})")
-            self.logger.info(f"[Task pool: {self.task_pool_cnt}]Time cost: {end_time - strat_time} ({end_time - strat_time}/{len(graphs)})")
-            for i, graph in enumerate(graphs):
-                question_id, id, title, text, prop = self.current_tasks[i]
-                graph.graph['title'] = title
-                graph.graph['text'] = text
-                graph.graph['prop'] = prop
-                save_graph(graph, f"{self.target_dir}/{question_id}_{id}.json")
-                self.logger.info(f"Saved graph: {self.target_dir}/{question_id}_{id}.json")
-                self.register_solved(question_id, id)
-                self.pbar.update(1)
-            self.current_tasks = []
-    
-    def is_solved(self, question_id: int, id: int):
+        self.logger.info(f"[Task pool: {self.task_pool_cnt}]Time cost: {end_time - strat_time} ({end_time - strat_time}/{len(graphs)})")
+        for i, graph in enumerate(graphs):
+            question_id, id, title, text, prop = self.current_tasks[i]
+            graph.graph['title'] = title
+            graph.graph['text'] = text
+            graph.graph['prop'] = prop
+            save_graph(graph, f"{self.target_dir}/{question_id}_{id}.json")
+            self.logger.info(f"Saved graph: {self.target_dir}/{question_id}_{id}.json")
+            self._register_solved(question_id, id)
+            self.pbar.update(1)
+        self.current_tasks = []
+            
+    def _is_solved(self, question_id: int, id: int):
         if question_id in self.task_solved:
             if id in self.task_solved[question_id]:
                 return True
         return False
     
-    def register_solved(self, question_id, id):
+    def _register_solved(self, question_id, id):
         if question_id not in self.task_solved:
             self.task_solved[question_id] = set()
         self.task_solved[question_id].add(id)
@@ -156,6 +159,7 @@ def task_seqs(file_path, target_dir, top_k):
                 #     save_graph(graph, f"{target_dir}/{question_id}_{id}.json")
                 #     solved_task.register_solved(question_id, id)
                 #     solved_task.pbar.update(1)
+            solved_task.unstack_all()
 
 
 if __name__ == '__main__':
