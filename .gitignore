@@ -16,3 +16,4 @@ __pycache__/
 *.json
 models/
 models/contriever-msmarco
+logs/
