@@ -9,37 +9,89 @@ version = "0.1.0"
 # submodule = "git submodule update --recursive --remote --init"
 # simulation = { cmd = "maturin develop", depends-on = ["submodule"], cwd = "simulation" }
 # install = {depends-on = ["simulation"]}
-test_llm = { cmd = "python test_llm.py"}
+test_llm = { cmd = "python tests/test_llm.py"}
 gen_emb ={ cmd = "sh scripts/generate_embs.sh"}
 base_line = {cmd = "sh scripts/base_line.sh"}
 cdit ={ cmd = "sh scripts/cdit.sh"}
 trim = {cmd = "python src/hyper_simulation/question_answer/get_trim.py"}
 analysis = {cmd = "python src/hyper_simulation/question_answer/retrival/analysis.py"}
 time_cost = {cmd = "python src/hyper_simulation/llm/time_cost.py"}
-tool = {cmd = "python test_tool.py"}
+tool = {cmd = "python tests/test_tool.py"}
 show = { cmd = "python src/hyper_simulation/question_answer/utils/show_task.py"}
+rag = { cmd = "python src/hyper_simulation/question_answer/rag.py"}
 
 [dependencies]
-python = "3.11.*"
+# python = "3.11.*"
 pip = ">=25.0.1,<26"
-maturin = ">=1.8.3,<2"
+# maturin = ">=1.8.3,<2"
 # faiss-gpu = { path = "lib/faiss-gpu-1.10.0-py3.11_h4818125_0_cuda12.1.1.conda"}
-faiss-cpu = { version = ">=1.9.0"}
+# faiss-cpu = { version = ">=1.9.0"}
 
 [pypi-dependencies]
+# hyper-simulation = { path = ".", editable = true }
+# contrievers = { path = "src/contrievers" , editable = true }
+# tqdm = ">=4.67.1, <5"
+# torch = { version = ">=2.5.1", index = "https://download.pytorch.org/whl/cu121" }
+thefuzz = ">=0.22.1, <0.23"
+
+[feature.naive.dependencies]
+python = "3.11.*"
+faiss-cpu = { version = ">=1.9.0"}
+maturin = ">=1.8.3,<2"
+
+[feature.naive.pypi-dependencies]
 hyper-simulation = { path = ".", editable = true }
-contrievers = { path = "src/contrievers" , editable = true }
 tqdm = ">=4.67.1, <5"
 torch = { version = ">=2.5.1", index = "https://download.pytorch.org/whl/cu121" }
-beir = ">= 2.1.0"
+contrievers = { path = "src/contrievers" , editable = true }
 numpy = ">=1.26.4,<2"
-matplotlib = ">=3.10.1, <4"
-jsonlines = ">=4.0.0, <5"
 langchain = ">= 0.3.20"
 langchain_ollama = ">= 0.2.3"
 langchain-openai = ">=0.3.11, <0.4"
 langchain-community = ">=0.3.19, <0.4"
+beir = ">= 2.1.0"
+matplotlib = ">=3.10.1, <4"
+jsonlines = ">=4.0.0, <5"
 colorama = ">=0.4.6, <0.5"
 keyboard = ">=0.13.5, <0.14"
 prompt-toolkit = ">=3.0.51, <4"
 simulation-alg = ">=0.1.2, <0.2"
+
+[feature.hypergraph.dependencies]
+python = "3.10.*"
+
+[feature.hypergraph.pypi-dependencies]
+hyper-simulation = { path = ".", editable = true }
+spacy = "==3.4.1"
+thefuzz = "==0.22.1"
+nltk = "==3.9.2"
+numpy = "==1.26.0"
+fastcoref = "==2.1.6"
+coreferee = "==1.4.1"
+pywsd = "==1.2.5"
+transformers = "==4.25.1"
+spacy-transformers = "==1.1.9"
+
+[feature.hypergraph.tasks]
+dependency = { cmd = "python tests/test_dependency.py"}
+
+[feature.simulation.dependencies]
+python = "3.10.*"
+
+[feature.simulation.pypi-dependencies]
+hyper-simulation = { path = ".", editable = true }
+simulation-alg = ">=0.1.8, <0.2"
+spacy = "==3.5.4"
+numpy = ">=1.26.2,<2"
+nltk = ">=3.9.2, <4"
+pywsd = ">=1.2.5, <2"
+sentence-transformers = ">=5.2.0, <6"
+modelscope = ">=1.34.0, <2"
+
+[feature.simulation.tasks]
+pre = { cmd = "python tests/test_hypergraph.py"}
+
+[environments]
+hypergraph = { features = ["hypergraph"] }
+simulation = { features = ["simulation"] }
+default = { features = ["naive"] }
