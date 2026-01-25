@@ -3,6 +3,8 @@ from nltk.corpus import wordnet as wn
 from pywsd.lesk import simple_lesk
 from spacy.tokens import Token
 
+# from hyper_simulation.hypergraph.dependency import LocalDoc
+
 
 ANCHORS = [
     # --------------------------------------------------------------------------

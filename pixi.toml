@@ -18,7 +18,9 @@ analysis = {cmd = "python src/hyper_simulation/question_answer/retrival/analysis
 time_cost = {cmd = "python src/hyper_simulation/llm/time_cost.py"}
 tool = {cmd = "python tests/test_tool.py"}
 show = { cmd = "python src/hyper_simulation/question_answer/utils/show_task.py"}
-rag = { cmd = "python src/hyper_simulation/question_answer/rag.py"}
+rag = { cmd = [
+    "python src/hyper_simulation/question_answer/rag.py",
+    ]}
 
 [dependencies]
 # python = "3.11.*"
@@ -81,15 +83,19 @@ python = "3.10.*"
 [feature.simulation.pypi-dependencies]
 hyper-simulation = { path = ".", editable = true }
 simulation-alg = ">=0.1.8, <0.2"
-spacy = "==3.5.4"
 numpy = ">=1.26.2,<2"
 nltk = ">=3.9.2, <4"
 pywsd = ">=1.2.5, <2"
 sentence-transformers = ">=5.2.0, <6"
 modelscope = ">=1.34.0, <2"
+langchain-ollama = ">=0.3.10, <0.4"
+spacy = ">=3.8.11, <4"
+jsonlines = ">=4.0.0, <5"
 
 [feature.simulation.tasks]
 pre = { cmd = "python tests/test_hypergraph.py"}
+test_contradoc = { cmd = "python tests/test_contradoc.py" }
+rag_no_retrival = { cmd = "python src/hyper_simulation/question_answer/rag_no_retrival.py" }
 
 [environments]
 hypergraph = { features = ["hypergraph"] }
