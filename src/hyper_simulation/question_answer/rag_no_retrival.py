@@ -276,6 +276,9 @@ def run_rag_evaluation(
             fixed_query_instances = [
                 query_fixup(qi, model=model) for qi in query_instances
             ]
+        elif method == "hyper_simulation":
+            # TODO : implement hyper_simulation method 
+            fixed_query_instances = query_instances
         else:
             raise ValueError(f"Unsupported method: {method}")
         
