@@ -465,6 +465,12 @@ class SemanticCluster:
                 node = he.current_node(vertex)
                 node_text = Vertex.resolved_text(node)
                 args.append(node_text)
+                
+                if node.pos in {Pos.ADJ, Pos.ADV} and node.dep in {Dep.amod, Dep.advmod}:
+                    head = node.head
+                    if head and head.pos in {Pos.NOUN, Pos.PROPN, Pos.VERB}:
+                        head_text = Vertex.resolved_text(head)
+                        triples.append(("attr", [head_text, node_text]))
             
             triples.append((root_text, args))
         
