@@ -14,7 +14,11 @@ from hyper_simulation.question_answer.vmdit.metrics import (
     match
 )
 
+from hyper_simulation.query_instance import QueryInstance
+
 from hyper_simulation.llm.prompt.hotpot_qa import HOTPOT_QA_BASE
+
+from hyper_simulation.baselines.contradoc import query_fixup
 
 # home/vincent/.dataset/HotpotQA/hotpot_*.jsonl
 def load_hotpotqa_data(file_path: str) -> List[Dict[str, Any]]:
@@ -57,7 +61,8 @@ def load_hotpotqa_data(file_path: str) -> List[Dict[str, Any]]:
                                 item['context']['title'],
                                 item['context']['sentences']
                             )
-                        ]
+                        ],
+                        'supporting_facts': item.get('supporting_facts', {}),
                     }
                     data.append(formatted_item)
         elif path.suffix == '.jsonl':
@@ -75,7 +80,8 @@ def load_hotpotqa_data(file_path: str) -> List[Dict[str, Any]]:
                                 item['context']['title'],
                                 item['context']['sentences']
                             )
-                        ]
+                        ],
+                        'supporting_facts': item.get('supporting_facts', {}),
                     }
                     data.append(formatted_item)
         else:
@@ -93,27 +99,6 @@ def load_data(file_path: str, task: str = "hotpotqa") -> List[Dict[str, Any]]:
     else:
         raise ValueError(f"Unsupported task: {task}")
 
-def format_context(context: List[List]) -> str:
-    """
-    将HotpotQA的context格式化为可读的文本
-    
-    Args:
-        context: [[title1, [sent1, sent2, ...]], [title2, [sent1, sent2, ...]], ...]
-    
-    Returns:
-        格式化后的context文本
-    """
-    formatted_parts = []
-    
-    for idx, (title, sentences) in enumerate(context, 1):
-        # 添加标题
-        formatted_parts.append(f"Document {idx}: {title}")
-        # 添加句子
-        for sent_idx, sentence in enumerate(sentences, 1):
-            formatted_parts.append(f"  {sent_idx}. {sentence}")
-        formatted_parts.append("")  # 空行分隔不同文档
-    
-    return "\n".join(formatted_parts)
 
 
 def build_prompt(question: str, context_text: str) -> str:
@@ -200,6 +185,8 @@ def run_rag_evaluation(
     output_path: str = "",
     batch_size: int = 5,
     temperature: float = 0.7,
+    task: str = "hotpotqa",
+    method: str = "vanilla",
 ):
     """
     运行RAG评估任务
@@ -210,9 +197,11 @@ def run_rag_evaluation(
         output_path: 结果输出路径
         batch_size: 批处理大小
         temperature: LLM温度参数
+        method: 评估方法
+        task: 任务类型
     """
     print(f"Loading data from {data_path}...")
-    data = load_hotpotqa_data(data_path)
+    data: List[Dict[str, Any]] = load_data(data_path, task)
     
     print(f"Loaded {len(data)} samples")
     print(f"Initializing LLM: {model_name}")
@@ -231,38 +220,90 @@ def run_rag_evaluation(
     
     # 按批次处理
     for batch_start in tqdm(range(0, len(data), batch_size), desc="Processing batches"):
-        batch = data[batch_start:batch_start + batch_size]
+        assert batch_start + batch_size <= len(data) 
+        batch = data[batch_start:(batch_start + batch_size)]
+        
+        # build data as `QueryInstance` by task
+        if task == "hotpotqa":
+            # query_instance.query = data["question"]
+            # query_instance.data from data["context"]
+            # fixed_data is empty
+            # query_instance.answer form data["answer"]
+            # query_instance.ground_truths form data["supporting_facts"]
+            query_instances = []
+            for item in batch:
+                
+                # build ground_truth from supporting_facts
+                # output as (bool, str)
+                # since `supporting_facts`: {`title`: [...], `sent_id`: [...]}
+                # and context is List of (title, [sentences])
+                # therefore if a title in supporting_facts, we set has_contradiction to True
+                # and evidence is the sentences under that title joined as str, for each cor context by sent_id
+                supporting_facts = item.get('supporting_facts', {})
+                ground_truths = []
+                titles_set = set(supporting_facts.get('title', []))
+                for title, sentences in item['context']:
+                    if title in titles_set:
+                        has_contradiction = True
+                        sent_ids = supporting_facts.get('sent_id', [])
+                        evidence_sentences = [
+                            sentences[i] for i in sent_ids 
+                            if i < len(sentences)
+                        ]
+                        evidence = "\n".join(evidence_sentences)
+                        ground_truths.append((has_contradiction, evidence))
+                    else:
+                        ground_truths.append((False, ""))
+                query_instance = QueryInstance(
+                    query=item['question'],
+                    data=[
+                        f"{title}\n" + "\n".join(sentences)
+                        for title, sentences in item['context']
+                    ],
+                    fixed_data=[],
+                    answers=item['answer'],
+                    ground_truth=ground_truths
+                )
+                query_instances.append(query_instance)
+        else:
+            raise ValueError(f"Unsupported task: {task}")
+        
+        if method == "vanilla":
+            # 不进行任何修改，直接使用原始数据
+            fixed_query_instances = query_instances
+        elif method == "contradoc":
+            # 使用Contradoc方法修正数据
+            fixed_query_instances = [
+                query_fixup(qi, model=model) for qi in query_instances
+            ]
+        else:
+            raise ValueError(f"Unsupported method: {method}")
         
         # 准备prompts
         prompts = []
-        for item in batch:
+        for item in fixed_query_instances:
             # 格式化context
-            context_texts = format_context(item['context'])
+            context_text = "\n\n".join(item.fixed_data if item.fixed_data else item.data)
             # 构建prompt
-            prompt = build_prompt(item['question'], context_texts)
+            prompt = build_prompt(item.query, context_text)
             prompts.append(prompt)
         
         # 批量调用LLM
         predictions = get_generate(prompts, model)
         
         # 后处理和评估
-        for item, pred in zip(batch, predictions):
+        for item, pred in zip(fixed_query_instances, predictions):
             # 后处理答案
             processed_pred = postprocess_answer(pred)
             
             # 评估答案
-            metrics = evaluate_answer(processed_pred, item['answer'])
+            metrics = evaluate_answer(processed_pred, item.answers)
             
             # 记录结果
             result = {
-                "id": item.get('_id', item.get('id', 'unknown')),
-                "question": item['question'],
-                "answer": item['answer'],
                 "prediction": processed_pred,
-                "raw_prediction": pred,
-                "type": item.get('type', 'unknown'),
-                "level": item.get('level', 'unknown'),
-                "metrics": metrics
+                "ground_truth": item.answers,
+                "metrics": metrics,
             }
             results.append(result)
             
@@ -322,7 +363,7 @@ def run_rag_evaluation(
             "results": results
         }
         
-        with open(f"{output_path}/hotpot_qa.json", 'w', encoding='utf-8') as f:
+        with open(f"{output_path}/{task}_{method}.json", 'w', encoding='utf-8') as f:
             json.dump(output_data, f, indent=2, ensure_ascii=False)
         
         print(f"\nResults saved to: {output_path}")
@@ -363,10 +404,20 @@ def main():
         default=0.7,
         help='LLM temperature parameter'
     )
+    
     parser.add_argument(
-        '--no_instruction',
-        action='store_true',
-        help='Do not use instruction format in prompts'
+        '--method',
+        type=str,
+        default='vanilla',
+        choices=['vanilla', 'contradoc'],
+        help='Method to use: vanilla or contradoc'
+    )
+    
+    parser.add_argument(
+        '--task',
+        type=str,
+        default='hotpotqa',
+        help='Task type (default: hotpotqa)'
     )
     
     args = parser.parse_args()
@@ -378,6 +429,8 @@ def main():
         output_path=args.output_path,
         batch_size=args.batch_size,
         temperature=args.temperature,
+        method=args.method,
+        task=args.task
     )
 
 
