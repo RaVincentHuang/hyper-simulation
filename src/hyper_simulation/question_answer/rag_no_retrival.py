@@ -13,12 +13,9 @@ from hyper_simulation.question_answer.vmdit.metrics import (
     qa_f1_score,
     match
 )
-
 from hyper_simulation.query_instance import QueryInstance
 
 from hyper_simulation.llm.prompt.hotpot_qa import HOTPOT_QA_BASE
-
-from hyper_simulation.baselines.contradoc import query_fixup
 
 # home/vincent/.dataset/HotpotQA/hotpot_*.jsonl
 def load_hotpotqa_data(file_path: str) -> List[Dict[str, Any]]:
@@ -187,6 +184,7 @@ def run_rag_evaluation(
     temperature: float = 0.7,
     task: str = "hotpotqa",
     method: str = "vanilla",
+    build: bool = True
 ):
     """
     运行RAG评估任务
@@ -199,6 +197,7 @@ def run_rag_evaluation(
         temperature: LLM温度参数
         method: 评估方法
         task: 任务类型
+        build: 判断是否已经转了超图
     """
     print(f"Loading data from {data_path}...")
     data: List[Dict[str, Any]] = load_data(data_path, task)
@@ -273,12 +272,19 @@ def run_rag_evaluation(
             fixed_query_instances = query_instances
         elif method == "contradoc":
             # 使用Contradoc方法修正数据
+            from hyper_simulation.baselines.contradoc import query_fixup
             fixed_query_instances = [
                 query_fixup(qi, model=model) for qi in query_instances
             ]
         elif method == "hyper_simulation":
-            # TODO : implement hyper_simulation method 
-            fixed_query_instances = query_instances
+            # 前提：将query_instances的每个item都转换为.pkl文件。
+            if not build:
+                from hyper_simulation.component.build_hypergraph import build_hypergraph_batch
+                build_hypergraph_batch(query_instances, dataset_name=task)
+            else:
+                # TODO : implement hyper_simulation method 
+                from hyper_simulation.component.contradiction import query_fixup
+                fixed_query_instances = [query_fixup(qi, task) for qi in query_instance]
         else:
             raise ValueError(f"Unsupported method: {method}")
         
@@ -422,9 +428,16 @@ def main():
         default='hotpotqa',
         help='Task type (default: hotpotqa)'
     )
-    
+
+    parser.add_argument(
+        '--build',
+        type=str,
+        default='True',
+        help='Whether hypergraphs already exist (default: "True"). Set to "False" to rebuild.'
+    )
+
     args = parser.parse_args()
-    
+    build_flag = (args.build.strip().lower() == 'true')
     # 运行评估
     run_rag_evaluation(
         data_path=args.data_path,
@@ -433,7 +446,8 @@ def main():
         batch_size=args.batch_size,
         temperature=args.temperature,
         method=args.method,
-        task=args.task
+        task=args.task,
+        build=args.build_flag
     )
 
 

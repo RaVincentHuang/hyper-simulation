@@ -76,7 +76,8 @@ spacy-transformers = "==1.1.9"
 
 [feature.hypergraph.tasks]
 dependency = { cmd = "python tests/test_dependency.py"}
-
+build = { cmd = "python src/hyper_simulation/question_answer/rag_no_retrival.py --method hyper_simulation --build False" }
+# pixi run -e hypergraph build --dataset hotpotqa --output_dir data/hypergraph
 
 [feature.simulation.dependencies]
 python = "3.10.*"

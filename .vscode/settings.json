@@ -5,4 +5,7 @@
     ],
     "python-envs.defaultEnvManager": "ms-python.python:system",
     "python-envs.pythonProjects": [],
+    "cursorpyright.analysis.extraPaths": [
+        ".pixi/envs/default/lib/python3.11/site-packages"
+    ],
 }
