@@ -5,8 +5,6 @@ from tqdm import tqdm
 from typing import List, Dict, Any
 from pathlib import Path
 
-from langchain_ollama import ChatOllama
-from hyper_simulation.llm.chat_completion import get_generate
 from hyper_simulation.question_answer.vmdit.metrics import (
     exact_match_score, 
     metric_max_over_ground_truths,
@@ -205,8 +203,11 @@ def run_rag_evaluation(
     print(f"Loaded {len(data)} samples")
     print(f"Initializing LLM: {model_name}")
     
-    # 初始化LLM
-    model = ChatOllama(model=model_name, temperature=temperature, top_p=0.95)
+    if build:
+        from langchain_ollama import ChatOllama
+        from hyper_simulation.llm.chat_completion import get_generate
+        # 初始化LLM
+        model = ChatOllama(model=model_name, temperature=temperature, top_p=0.95)
     
     results = []
     all_metrics = {
@@ -281,6 +282,8 @@ def run_rag_evaluation(
             if not build:
                 from hyper_simulation.component.build_hypergraph import build_hypergraph_batch
                 build_hypergraph_batch(query_instances, dataset_name=task)
+                print("build hypergraph")
+                return
             else:
                 # TODO : implement hyper_simulation method 
                 from hyper_simulation.component.contradiction import query_fixup
@@ -418,7 +421,7 @@ def main():
         '--method',
         type=str,
         default='vanilla',
-        choices=['vanilla', 'contradoc'],
+        choices=['vanilla', 'contradoc', 'hyper_simulation'],
         help='Method to use: vanilla or contradoc'
     )
     
@@ -447,7 +450,7 @@ def main():
         temperature=args.temperature,
         method=args.method,
         task=args.task,
-        build=args.build_flag
+        build=build_flag
     )
 
 

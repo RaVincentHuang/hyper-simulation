@@ -8,7 +8,7 @@ from typing import List, Optional, Union
 import spacy
 from spacy.tokens import Doc
 from tqdm import tqdm
-
+from fastcoref import spacy_component
 from hyper_simulation.query_instance import QueryInstance
 from hyper_simulation.hypergraph.hypergraph import Hypergraph as LocalHypergraph
 from hyper_simulation.hypergraph.dependency import Node, LocalDoc, Dependency
@@ -22,7 +22,9 @@ def get_nlp() -> spacy.Language:
     if _NLP is None:
         _NLP = spacy.load('en_core_web_trf')
         if 'fastcoref' not in _NLP.pipe_names:
-            _NLP.add_pipe('fastcoref', config={ 'model_architecture': 'LingMessCoref', 'model_path': 'biu-nlp/lingmess-coref', 'device': 'cpu'})
+            local_model_path = "/home/vincent/.cache/huggingface/hub/models--biu-nlp--lingmess-coref/snapshots/fa5d8a827a09388d03adbe9e800c7d8c509c3935"
+            # _NLP.add_pipe('fastcoref', config={ 'model_architecture': 'LingMessCoref', 'model_path': 'biu-nlp/lingmess-coref', 'device': 'cpu'})
+            _NLP.add_pipe('fastcoref', config={ 'model_architecture': 'LingMessCoref', 'model_path': local_model_path, 'device': 'cpu'})
     return _NLP
 
 def text_to_doc(text: str) -> Doc:
