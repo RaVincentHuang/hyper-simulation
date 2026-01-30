@@ -100,9 +100,10 @@ jsonlines = ">=4.0.0, <5"
 pre = { cmd = "python tests/test_hypergraph.py"}
 test_contradoc = { cmd = "python tests/test_contradoc.py" }
 rag_no_retrival = { cmd = "python src/hyper_simulation/question_answer/rag_no_retrival.py" }
-hyper_simulation = { cmd = "python src/hyper_simulation/question_answer/rag_no_retrival.py --method hyper_simulation" }
+hyper_simulation = { cmd = "python src/hyper_simulation/question_answer/rag_no_retrival.py --method hyper_simulation --output_path /data/hyper_simulation" }
 # LD_LIBRARY_PATH="/home/vincent/hyper-simulation/.pixi/envs/simulation/lib" \
 # pixi run -e simulation hyper_simulation --data_path /home/vincent/.dataset/HotpotQA/sample20distractor
+# pixi run -e simulation rag_no_retrival --data_path /home/vincent/.dataset/HotpotQA/sample20distractor --output_path data/baseline/contradoc --method contradoc --task hotpotqa
 [environments]
 hypergraph = { features = ["hypergraph"] }
 simulation = { features = ["simulation"] }
