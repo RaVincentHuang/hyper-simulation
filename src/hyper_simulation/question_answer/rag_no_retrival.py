@@ -283,11 +283,11 @@ def run_rag_evaluation(
                 from hyper_simulation.component.build_hypergraph import build_hypergraph_batch
                 build_hypergraph_batch(query_instances, dataset_name=task)
                 print("build hypergraph")
-                return
+                continue
             else:
                 # TODO : implement hyper_simulation method 
                 from hyper_simulation.component.contradiction import query_fixup
-                fixed_query_instances = [query_fixup(qi, task) for qi in query_instance]
+                fixed_query_instances = [query_fixup(qi, task) for qi in query_instances]
         else:
             raise ValueError(f"Unsupported method: {method}")
         

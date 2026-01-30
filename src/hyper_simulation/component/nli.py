@@ -55,7 +55,9 @@ _model_cache = {}
 def get_nli_labels_batch(pairs: list[tuple[str, str]]) -> list[str]:
     if 'nli-deberta-v3-base' not in _model_cache:
         from sentence_transformers import CrossEncoder
-        _model_cache['nli-deberta-v3-base'] = CrossEncoder('cross-encoder/nli-deberta-v3-base', device="cpu")
+        local_model_path = "/home/vincent/.cache/huggingface/hub/models--cross-encoder--nli-deberta-v3-base/snapshots/6c749ce3425cd33b46d187e45b92bbf96ee12ec7"
+        # _model_cache['nli-deberta-v3-base'] = CrossEncoder('cross-encoder/nli-deberta-v3-base', device="cpu")
+        _model_cache['nli-deberta-v3-base'] = CrossEncoder(local_model_path, device="cpu")
     model = _model_cache['nli-deberta-v3-base']
     scores = model.predict(pairs)
     label_mapping = ['contradiction', 'entailment', 'neutral']
@@ -69,7 +71,9 @@ def get_nli_label(text1: str, text2: str) -> str:
 def get_nli_entailment_score_batch(pairs: list[tuple[str, str]]) -> list[float]:
     if 'nli-deberta-v3-base' not in _model_cache:
         from sentence_transformers import CrossEncoder
-        _model_cache['nli-deberta-v3-base'] = CrossEncoder('cross-encoder/nli-deberta-v3-base', device="cpu")
+        local_model_path = "/home/vincent/.cache/huggingface/hub/models--cross-encoder--nli-deberta-v3-base/snapshots/6c749ce3425cd33b46d187e45b92bbf96ee12ec7"
+        # _model_cache['nli-deberta-v3-base'] = CrossEncoder('cross-encoder/nli-deberta-v3-base', device="cpu")
+        _model_cache['nli-deberta-v3-base'] = CrossEncoder(local_model_path, device="cpu")
     model = _model_cache['nli-deberta-v3-base']
     scores = model.predict(pairs)
     entailment_scores = [score[1] for score in scores]
@@ -78,7 +82,9 @@ def get_nli_entailment_score_batch(pairs: list[tuple[str, str]]) -> list[float]:
 def get_nli_contradiction_score_batch(pairs: list[tuple[str, str]]) -> list[float]:
     if 'nli-deberta-v3-base' not in _model_cache:
         from sentence_transformers import CrossEncoder
-        _model_cache['nli-deberta-v3-base'] = CrossEncoder('cross-encoder/nli-deberta-v3-base', device="cpu")
+        local_model_path = "/home/vincent/.cache/huggingface/hub/models--cross-encoder--nli-deberta-v3-base/snapshots/6c749ce3425cd33b46d187e45b92bbf96ee12ec7"
+        # _model_cache['nli-deberta-v3-base'] = CrossEncoder('cross-encoder/nli-deberta-v3-base', device="cpu")
+        _model_cache['nli-deberta-v3-base'] = CrossEncoder(local_model_path, device="cpu")
     model = _model_cache['nli-deberta-v3-base']
     scores = model.predict(pairs)
     contradiction_scores = [score[0] for score in scores]
