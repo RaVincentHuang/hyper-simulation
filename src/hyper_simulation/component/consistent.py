@@ -61,7 +61,7 @@ def get_distance(text1: str, text2: str) -> float:
     return 1.0 - cosine_similarity(emb1, emb2)
 
 
-def detect_contradiction_via_simulation(
+def consistent_detection(
     query_hg: LocalHypergraph,
     data_hg: LocalHypergraph,
     query_text: str,
@@ -69,7 +69,7 @@ def detect_contradiction_via_simulation(
     distance_threshold: float = 0.25
 ) -> Tuple[bool, str]:
     """
-    严格遵循矛盾检测：
+    严格遵循一致性检测：
     当 δ > θ 时，验证 hyper simulation 是否满足 ∀u∈V_q, ∃v∈V_d: (u,v)∈Π
     """
     # Step 1: 计算向量距离
@@ -128,7 +128,7 @@ def query_fixup(query: QueryInstance, dataset_name: str = "hotpotqa") -> QueryIn
             fixed_data.append(doc_text)
             continue
         
-        has_contradiction, evidence = detect_contradiction_via_simulation(
+        has_contradiction, evidence = consistent_detection(
             query_hg, data_hg, query.query, doc_text
         )
         

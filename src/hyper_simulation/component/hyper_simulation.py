@@ -74,6 +74,10 @@ def build_delta_and_dmatch(
     delta = Delta()
     d_delta_matches: Dict[Tuple[int, int], Set[Tuple[int, int]]] = {}
     
+    # TODO: Add semantic clusters and D-Match based on components
+    # Delta: `get_semantic_cluster_pairs` -> list[tuple[u, v, cluster_u, cluster_v]]
+    # D-Match: `get_d_match` dict: (sc_id_u, sc_id_v) -> set of (u_id, v_id)
+    
     for q_id, d_id in sorted(allowed_pairs):
         cluster_u = query_node_edges.get(q_id, [])
         cluster_v = data_node_edges.get(d_id, [])
