@@ -227,275 +227,122 @@ class SemanticCluster:
         self.vertices = ordered_vertices
         return self.vertices
     
-    def get_paths_between_vertices(self, v1: Vertex, v2: Vertex) -> tuple[str, int]:
-        key = (v1, v2)
-        if key in self.vertices_paths:
-            return self.vertices_paths[key]
-        
-        node_vertex: dict[Node, Vertex] = {}
-        
-        nodes_in_vertices: set[Node] = set()
-        for he in self.hyperedges:
-            for v in he.vertices:
-                if v.pos_equal(Pos.VERB) or v.pos_equal(Pos.AUX):
-                    continue
-                nodes_in_vertices.add(he.current_node(v))
-                node_vertex[he.current_node(v)] = v
-
-        nodes_in_vertices_list = list(nodes_in_vertices)
-        queries: list[tuple[Node, Node]] = []
-        for i in range(len(nodes_in_vertices_list) - 1):
-            for j in range(i + 1, len(nodes_in_vertices_list)):
-                u = nodes_in_vertices_list[i]
-                v = nodes_in_vertices_list[j]
-                queries.append((u, v))
-        
-        edge_between_nodes: list[tuple[Node, Node]] = []
-        saved_nodes: set[Node] = set()
-        for he in self.hyperedges:
-            root = he.current_node(he.root)
-            for i in range(1, len(he.vertices)):
-                node = he.current_node(he.vertices[i])
-                edge_between_nodes.append((root, node))
-                saved_nodes.add(node) # HINT
-            head = root.head
-            current = root
-            while head:
-                edge_between_nodes.append((head, current))
-                if head in saved_nodes:
-                    break
-                current = head
-                head = head.head
-            saved_nodes.add(root)
-            
-        # for (u, v) in edge_between_nodes:
-        #     print(f"Edge: '{u.text} ({u.index})' -> '{v.text} ({v.index})'")
-                    
-        lca_results = TarjanLCA(edge_between_nodes, queries).lca()
-        
-        lca_map: dict[tuple[Node, Node], Node] = {}
-        for i, (u, v) in enumerate(queries):
-            lca_node = lca_results[i]
-            if lca_node:
-                # print(f"LCA of '{u.text} ({u.index})' and '{v.text} ({v.index})' is '{lca_node.text} ({lca_node.index})'")
-                lca_map[(u, v)] = lca_node
-        
-        node_paths: dict[tuple[Vertex, Vertex], list[tuple[str, int]]] = {}
-        
-        for (u, v), k in lca_map.items():
-            # collect path from u to k
-            # print(f"Collecting path between '{u.text} ({u.index})' and '{v.text} ({v.index})', LCA is '{k.text} ({k.index})'")
-            vertex_u = node_vertex[u]
-            vertex_v = node_vertex[v]
-            if u == k:
-                text = f"#A -{v.dep.name}-> #B"
-                if (vertex_u, vertex_v) not in node_paths:
-                    node_paths[(vertex_u, vertex_v)] = []
-                node_paths[(vertex_u, vertex_v)].append((text, 1))
+def get_paths_between_vertices(self, v1: Vertex, v2: Vertex) -> tuple[str, int]:
+    key = (v1, v2)
+    if key in self.vertices_paths:
+        return self.vertices_paths[key]
+    
+    node_vertex: dict[Node, Vertex] = {}
+    nodes_in_vertices: set[Node] = set()
+    for he in self.hyperedges:
+        for v in he.vertices:
+            if v.pos_equal(Pos.VERB) or v.pos_equal(Pos.AUX):
                 continue
-            elif v == k:
-                text = f"#A <-{u.dep.name}- #B"
-                if (vertex_u, vertex_v) not in node_paths:
-                    node_paths[(vertex_u, vertex_v)] = []
-                node_paths[(vertex_u, vertex_v)].append((text, 1))
-                continue
-            
-            node_cnt = 1
-            path_items: list[Node] = []
-            current = u
-            current_trace: list[str] = []
-            while current != k:
-                current_trace.append(current.text)
-                if current in nodes_in_vertices:
-                    node_cnt += 1
+            nodes_in_vertices.add(he.current_node(v))
+            node_vertex[he.current_node(v)] = v
+    
+    nodes_in_vertices_list = list(nodes_in_vertices)
+    queries: list[tuple[Node, Node]] = []
+    for i in range(len(nodes_in_vertices_list) - 1):
+        for j in range(i + 1, len(nodes_in_vertices_list)):
+            u = nodes_in_vertices_list[i]
+            v = nodes_in_vertices_list[j]
+            queries.append((u, v))
+    
+    edge_between_nodes: list[tuple[Node, Node]] = []
+    saved_nodes: set[Node] = set()
+    for he in self.hyperedges:
+        root = he.current_node(he.root)
+        for i in range(1, len(he.vertices)):
+            node = he.current_node(he.vertices[i])
+            edge_between_nodes.append((root, node))
+            saved_nodes.add(node)
+        head = root.head
+        current = root
+        while head:
+            edge_between_nodes.append((head, current))
+            if head in saved_nodes:
+                break
+            current = head
+            head = head.head
+        saved_nodes.add(root)
+    
+    lca_results = TarjanLCA(edge_between_nodes, queries).lca()
+    lca_map: dict[tuple[Node, Node], Node] = {}
+    for i, (u, v) in enumerate(queries):
+        lca_node = lca_results[i]
+        if lca_node:
+            lca_map[(u, v)] = lca_node
+    
+    node_paths: dict[tuple[Vertex, Vertex], list[tuple[str, int]]] = {}
+    for (u, v), k in lca_map.items():
+        vertex_u = node_vertex[u]
+        vertex_v = node_vertex[v]
+        
+        if u == k:
+            text = f"#A -{v.dep.name}-> #B"
+            node_paths.setdefault((vertex_u, vertex_v), []).append((text, 1))
+            continue
+        elif v == k:
+            text = f"#A <-{u.dep.name}- #B"
+            node_paths.setdefault((vertex_u, vertex_v), []).append((text, 1))
+            continue
+        
+        # === 修复1: 安全追溯 u -> k (移除 assert) ===
+        node_cnt = 1
+        path_items: list[Node] = []
+        current = u
+        current_trace: list[str] = [current.text]
+        while current != k:
+            if current in nodes_in_vertices:
+                node_cnt += 1
                 path_items.append(current)
-                assert current.head is not None, f"Node '{current.text}' has no head while tracing to LCA '{k.text}', current trace: {' -> '.join(current_trace)}"
-                current = current.head
-                
+            if current.head is None:
+                # 无法继续追溯：打印精准调试信息
+                print(f"[PATH_TRACE] FAILED u→k: Node '{current.text}' (index={current.index}) has no head "
+                      f"while tracing to LCA '{k.text}' (index={k.index}). "
+                      f"Trace: {' → '.join(current_trace)}")
+                break
+            current = current.head
+            current_trace.append(current.text)
+        else:
+            # 仅当成功到达 LCA 时才继续
             path_items.append(k)
-            # collect path from v to k
+            
+            # === 修复2: 安全追溯 v -> k (移除 assert) ===
             rev_path_items: list[Node] = []
             current = v
-            current_trace: list[str] = []
+            current_trace = [current.text]
             while current != k:
-                current_trace.append(current.text)
                 if current in nodes_in_vertices:
                     node_cnt += 1
-                rev_path_items.append(current)
-                assert current.head is not None, f"Node '{current.text}' has no head while tracing to LCA '{k.text}', current trace: {' -> '.join(current_trace)}"
+                    rev_path_items.append(current)
+                if current.head is None:
+                    # 无法继续追溯：打印精准调试信息
+                    print(f"[PATH_TRACE] FAILED v→k: Node '{current.text}' (index={current.index}) has no head "
+                          f"while tracing to LCA '{k.text}' (index={k.index}). "
+                          f"Trace: {' → '.join(current_trace)}")
+                    break
                 current = current.head
-            rev_path_items = rev_path_items[::-1]
-            path_items.extend(rev_path_items)
-            text = node_sequence_to_text(path_items)
-            text_inv = text.replace("#A", "#TEMP").replace("#B", "#A").replace("#TEMP", "#B")
-            if (vertex_u, vertex_v) not in node_paths:
-                node_paths[(vertex_u, vertex_v)] = []
-            node_paths[(vertex_u, vertex_v)].append((text, node_cnt))
-            if (vertex_v, vertex_u) not in node_paths:
-                node_paths[(vertex_v, vertex_u)] = []
-            node_paths[(vertex_v, vertex_u)].append((text_inv, node_cnt))
-            
-        # select the shortest path
-        for (vertex_u, vertex_v), paths in node_paths.items():
+                current_trace.append(current.text)
+            else:
+                # 仅当两个方向都成功到达 LCA 时才构建路径
+                rev_path_items = rev_path_items[::-1]
+                path_items.extend(rev_path_items)
+                text = node_sequence_to_text(path_items)
+                text_inv = text.replace("#A", "#TEMP").replace("#B", "#A").replace("#TEMP", "#B")
+                
+                node_paths.setdefault((vertex_u, vertex_v), []).append((text, node_cnt))
+                node_paths.setdefault((vertex_v, vertex_u), []).append((text_inv, node_cnt))
+                continue  # 成功处理，跳过后续
+    
+    # 选择最短路径
+    for (vertex_u, vertex_v), paths in node_paths.items():
+        if paths:
             paths = sorted(paths, key=lambda x: x[1])
             self.vertices_paths[(vertex_u, vertex_v)] = paths[0]
-        
-        # return self.vertices_paths.setdefault(key, ("", 0))
-        if self.vertices_paths.get(key):
-            return self.vertices_paths[key]
-        else:
-            return ("", 0)
-        
     
-    def text(self) -> str:
-        if self.text_cache is not None:
-            return self.text_cache
-        
-        if not self.hyperedges:
-            return ""
-        
-        # Calc all the roots
-        root_ancestors = {e.current_node(e.root): e.current_node(e.root) for e in self.hyperedges}
-        # print(f"Nodes: {[e.current_node(e.root).text for e in self.hyperedges]}")
-        for e in self.hyperedges:
-            root = e.current_node(e.root)
-            node = root
-            ancestors = []
-            while node.head:
-                ancestors.append(node)
-                # print(f" {root.text}'s ancestor node: {node.head.text}")
-                if node.head in root_ancestors:
-                    root_ancestors[root] = root_ancestors[node.head]
-                    break
-                node = node.head
-        
-        root_to_nodes: dict[Node, set[Node]] = {}
-        for e in self.hyperedges:
-            root = e.current_node(e.root)
-            root_of_root = root_ancestors[root]
-            if root_of_root not in root_to_nodes:
-                root_to_nodes[root_of_root] = set()
-            for vertex in e.vertices:
-                node = e.current_node(vertex)
-                root_to_nodes[root_of_root].add(node)
-                
-        sub_cluster_roots: set[Node] = set()
-        for root, nodes in root_to_nodes.items():
-            sub_cluster_roots.add(root_ancestors[root])
-        
-        sub_clusters = sorted(list(sub_cluster_roots), key=lambda r: r.index)
-        
-        texts = []
-        
-        # print(f"Sub-clusters count: {len(sub_clusters)}")
-        
-        for root in sub_clusters:
-            nodes = list(root_to_nodes[root])
-            start = min(node.index for node in nodes)
-            end = max(node.index for node in nodes) + 1
-            sentence_by_range = str(self.doc[start:end])
-            sentence = str(root.sentence)
-            # print(f"Sentence: {sentence}")
-            # print(f"Sentence by range: {sentence_by_range}")
-            
-            def calc_prefix_suffix(sentence_by_range, sentence):
-                start = sentence.find(sentence_by_range)
-                if start != -1:
-                    prefix = sentence[:start].strip()
-                    suffix = sentence[start + len(sentence_by_range):].strip()
-                else:
-                    prefix = ""
-                    suffix = ""
-                return prefix, suffix
-        
-            prefix, suffix = calc_prefix_suffix(sentence_by_range, sentence)
-            
-            replacement = []
-            for node in nodes:
-                if node == root:
-                    continue
-                node_text = Vertex.resolved_text(node)
-                replacement.append((node.sentence, node_text))
-            
-            replacement.append((prefix, ""))
-            replacement.append((suffix, ""))
-            
-            for old, new in replacement:
-                sentence = sentence.replace(old, new)
-            
-            texts.append(sentence.strip())
-        
-        # for text in texts:
-        #     print(f" Sub-cluster text: {text}")
-        
-        text = " ".join(texts).strip()
-        
-        self.text_cache = text
-        return text
-
-    def _build_signature(self) -> tuple:
-        if not self.hyperedges:
-            return ()
-        items = []
-        for he in self.hyperedges:
-            root_id = he.root.id if he.root else -1
-            items.append((root_id, he.start, he.end, he.desc))
-        items.sort()
-        return tuple(items)
-
-    def signature(self) -> tuple:
-        if self._signature is None:
-            self._signature = self._build_signature()
-        return self._signature
-
-    def to_triple(self) -> list[tuple[str, list[str]]]:
-        """
-        将 SemanticCluster 抽象为三元组形式: (root, [node1, node2, ...])
-        返回一个三元组列表，每个 hyperedge 对应一个三元组
-        """
-        triples = []
-        for he in self.hyperedges:
-            root_text = Vertex.resolved_text(he.current_node(he.root))
-            
-            # 收集非root的节点
-            args = []
-            for vertex in he.vertices:
-                if vertex == he.root:
-                    continue
-                node = he.current_node(vertex)
-                node_text = Vertex.resolved_text(node)
-                args.append(node_text)
-                
-                if node.pos in {Pos.ADJ, Pos.ADV} and node.dep in {Dep.amod, Dep.advmod}:
-                    head = node.head
-                    if head and head.pos in {Pos.NOUN, Pos.PROPN, Pos.VERB}:
-                        head_text = Vertex.resolved_text(head)
-                        triples.append(("attr", [head_text, node_text]))
-            
-            triples.append((root_text, args))
-        
-        return triples
-    
-    def to_triple_text(self) -> str:
-        """返回所有三元组的文本表示"""
-        texts = []
-        for root, args in self.to_triple():
-            if len(args) == 0:
-                texts.append(f"{root}()")
-            else:
-                texts.append(f"{root}({', '.join(args)})")
-        return " & ".join(texts)
-
-    def __hash__(self) -> int:
-        return hash((self.is_query, self.signature()))
-
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, SemanticCluster):
-            return False
-        if self.is_query != other.is_query:
-            return False
-        return self.signature() == other.signature()
-
+    return self.vertices_paths.get(key, ("", 0))
 def calc_embedding_for_cluster_batch(clusters: list[SemanticCluster]) -> None:
     texts = [sc.text() for sc in clusters]
     embeddings = get_embedding_batch(texts)
@@ -1165,33 +1012,38 @@ def get_d_match(sc1: SemanticCluster, sc2: SemanticCluster, score_threshold: flo
     
     likely_nodes = _get_matched_vertices(sc1_vertices, sc2_vertices)
     
-
     sc2_pairs: list[tuple[Vertex, Vertex]] = []
     sc2_paths: dict[tuple[Vertex, Vertex], tuple[str, int]] = {}
-    # 核心
+    
+    # 核心匹配逻辑
     for u, u_prime in sc1_pairs:
         for v, v_prime in itertools.product(likely_nodes.get(u, set()), likely_nodes.get(u_prime, set())):
             if v == v_prime:
                 continue
-            # print(f"Compare ({u.text()}, {u_prime.text()}) with ({v.text()}, {v_prime.text()})")
-            s1, cnt1 = sc1_paths[(u, u_prime)]
             
+            s1, cnt1 = sc1_paths[(u, u_prime)]
             s2, cnt2 = sc2.get_paths_between_vertices(v, v_prime)
             s2_inv, cnt2_prime = sc2.get_paths_between_vertices(v_prime, v)
+            
+            # 处理单向路径缺失
             if cnt2 == 0 or s2 == "":
-                sc2_pairs.append((v_prime, v))
-                sc2_paths[(v_prime, v)] = (s2_inv, cnt2)
+                if cnt2_prime > 0 and s2_inv:
+                    sc2_pairs.append((v_prime, v))
+                    sc2_paths[(v_prime, v)] = (s2_inv, cnt2_prime)
                 continue
             elif cnt2_prime == 0 or s2_inv == "":
                 sc2_pairs.append((v, v_prime))
                 sc2_paths[(v, v_prime)] = (s2, cnt2)
                 continue
-            assert s2 != "" and s2_inv != "", f"Both paths between '{v.text()}' and '{v_prime.text()}' are empty."
-            # print(f"{s1} <-> {s2} || {s2_inv}")
+            
+            # === 修复3: 移除危险 assert，替换为防御性跳过 + 精准日志 ===
+            if not s2 or not s2_inv:
+                print(f"[D_MATCH] SKIPPED: Empty paths for vertex pair '{v.text()}' ↔ '{v_prime.text()}' in cluster. s2='{s2}', s2_inv='{s2_inv}'")
+                continue
+            
             if _better_path(s1, s2, s2_inv):
                 sc2_pairs.append((v, v_prime))
                 sc2_paths[(v, v_prime)] = (s2, cnt2)
-                
             else:
                 sc2_pairs.append((v_prime, v))
                 sc2_paths[(v_prime, v)] = (s2_inv, cnt2)

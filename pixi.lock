@@ -135,7 +135,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/a8/f3/62fc9a5a659bb58a03cdd7e258956a5824bdc9b4bb3c5d932f55880be569/scikit_learn-1.6.1-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/32/ea/564bacc26b676c06a00266a3f25fdfe91a9d9a2532ccea7ce6dd394541bc/scipy-1.15.2-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/05/89/7eb147a37b7f31d3c815543df539d8b8d0425e93296c875cc87719d65232/sentence_transformers-3.4.1-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/ca/fe/a513f07189b911556de733ebad3b408ba099122b8f8af0aead945dd727a4/simulation_alg-0.1.2.tar.gz
+      - pypi: https://files.pythonhosted.org/packages/17/3d/69fb20c9db9cf5742ef62ab76ee1350214219d810e0846ff6e6c69364ce0/simulation_alg-0.1.8.tar.gz
       - pypi: https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/e9/44/75a9c9421471a6c4805dbf2356f7c181a29c1879239abab1ea2cc8f38b40/sniffio-1.3.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ff/0a/46f3171f564a19a1daf6e7e0e6c8afc6ecd792f947c6de435519d4d16af3/sqlalchemy-2.0.39-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
@@ -267,6 +267,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/79/a9/1898a077e2965c35fc22796488141a22676eed2d73701e37c73ad7c0b459/regex-2026.1.15-cp310-cp310-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/1e/db/4254e3eabe8020b458f1a747140d32277ec7a271daf1d235b70dc0b4e6e3/requests-2.32.5-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/8e/6d/41991e503e51fc1134502694c5fa7a1671501a17ffa12716a4a9151af3df/scipy-1.15.3-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+      - pypi: https://files.pythonhosted.org/packages/17/3d/69fb20c9db9cf5742ef62ab76ee1350214219d810e0846ff6e6c69364ce0/simulation_alg-0.1.8.tar.gz
       - pypi: https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/fc/d9/d97f1db64b09278aba64e8c81b5d322d436132df5741c518f3823824fae0/smart_open-6.4.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/a5/18/98b82532c3a79a49a19f8ad9677a16a7d8640159c8b2def6ac465437528c/spacy-3.4.1-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
@@ -4429,11 +4430,6 @@ packages:
   - pkg:pypi/setuptools?source=compressed-mapping
   size: 678025
   timestamp: 1768998156365
-- pypi: https://files.pythonhosted.org/packages/ca/fe/a513f07189b911556de733ebad3b408ba099122b8f8af0aead945dd727a4/simulation_alg-0.1.2.tar.gz
-  name: simulation-alg
-  version: 0.1.2
-  sha256: b296009b6bd79455ae32d6d3ce5bd4af684d367b5d198450e51461d2b3d3e51c
-  requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/17/3d/69fb20c9db9cf5742ef62ab76ee1350214219d810e0846ff6e6c69364ce0/simulation_alg-0.1.8.tar.gz
   name: simulation-alg
   version: 0.1.8
