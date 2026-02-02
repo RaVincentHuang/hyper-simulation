@@ -1,7 +1,8 @@
 from platform import node
 from hyper_simulation.hypergraph.dependency import LocalDoc, Node, Pos, Entity, Relationship, Dep, Tag
 import itertools
-
+import logging
+logger = logging.getLogger(__name__)
 # import index
 
 class Vertex:
@@ -83,45 +84,69 @@ class Vertex:
         return any(pos1 == pos2 for (pos1, pos2) in itertools.product(self.poses, other.poses))
         
     def is_domain(self, other: 'Vertex') -> bool:
-        # 1. NER 实体匹配
+        """语义域匹配：NER → WordNet → POS fallback"""
+        # Step 1: NER 实体匹配（最高优先级）
         self_has_ent = any(e != Entity.NOT_ENTITY for e in self.ents)
         other_has_ent = any(e != Entity.NOT_ENTITY for e in other.ents)
         
         if self_has_ent and other_has_ent:
-            return any(self.ent_range(e) for e in other.ents if e != Entity.NOT_ENTITY)
+            matched = any(self.ent_range(e) for e in other.ents if e != Entity.NOT_ENTITY)
+            if matched:
+                logger.debug(f"✓ is_domain=True (NER): '{self.text()}'[{self.ents}] ↔ '{other.text()}'[{other.ents}]")
+                return True
+            logger.debug(f"✗ is_domain=False (NER mismatch): '{self.text()}'[{self.ents}] vs '{other.text()}'[{other.ents}]")
+            return False
         
         if self_has_ent != other_has_ent:
+            logger.debug(f"✗ is_domain=False (one has NER, other doesn't): '{self.text()}' vs '{other.text()}'")
             return False
 
-        # 2. WordNet
+        # Step 2: WordNet 域匹配
         wn_result = self._wordnet_domain_match(other)
         if wn_result is False:
-            return wn_result
+            logger.debug(f"✗ is_domain=False (WordNet): '{self.text()}' vs '{other.text()}'")
+            return False
+        elif wn_result is True:
+            logger.debug(f"✓ is_domain=True (WordNet): '{self.text()}' ↔ '{other.text()}'")
+            return True
+
 
         # # 3. Wikidata
         # wd_result = self._wikidata_domain_match(other)
         # if wd_result is not None:
         #     return wd_result
 
-        # 4. POS fallback
-        return any(self.pos_range(p) for p in other.poses)
+        # Step 3: POS fallback（最低优先级）
+        pos_matched = any(self.pos_range(p) for p in other.poses)
+        if pos_matched:
+            logger.debug(f"✓ is_domain=True (POS fallback): '{self.text()}'[{self.poses}] ↔ '{other.text()}'[{other.poses}]")
+        else:
+            logger.debug(f"✗ is_domain=False (POS mismatch): '{self.text()}'[{self.poses}] vs '{other.text()}'[{other.poses}]")
+        return pos_matched
     
     def _wordnet_domain_match(self, other: 'Vertex') -> bool | None:
+        """WordNet 抽象域/上位词匹配"""
         self_abs = {n.wn_abstraction for n in self.nodes if getattr(n, 'wn_abstraction', None)}
         other_abs = {n.wn_abstraction for n in other.nodes if getattr(n, 'wn_abstraction', None)}
         
         if self_abs and other_abs:
-            return bool(self_abs & other_abs)
+            common = self_abs & other_abs
+            if common:
+                logger.debug(f"WordNet abstraction match: '{self.text()}' & '{other.text()}' → {common}")
+                return True
+            return False
 
         self_hyp = {h for n in self.nodes for h in getattr(n, 'wn_hypernym_path', [])}
         other_hyp = {h for n in other.nodes for h in getattr(n, 'wn_hypernym_path', [])}
-
         if not self_hyp or not other_hyp:
             return None
 
         top_level = {'entity.n.01', 'abstraction.n.06', 'physical_entity.n.01'}
         common = (self_hyp & other_hyp) - top_level
-        return len(common) > 0
+        if common:
+            logger.debug(f"WordNet hypernym match: '{self.text()}' & '{other.text()}' → {common}")
+            return True
+        return False
 
     def _wikidata_domain_match(self, other: 'Vertex') -> bool | None:
         """基于 Wikidata 标签判断语义领域（运行时查询），返回 None 表示无法判断"""
@@ -219,24 +244,23 @@ class Hyperedge:
         assert False, f"Vertex does not contain a node in hyperedge range, Vertex nodes: {vertex.nodes}, Hyperedge range: {self.start}-{self.end}, Hyperedge is {self.desc}"
     
     def have_no_link(self, vertex1: Vertex, vertex2: Vertex) -> bool:
-        if vertex1 == self.root:
-            return True
-        if vertex2 == self.root:
-            return False
+        """判断两个非根顶点是否应断开连接（避免过度连接）"""
+        if vertex1 == self.root or vertex2 == self.root:
+            return vertex1 == self.root  # 根节点只与非根连接
+        
         node1 = self.current_node(vertex1)
         node2 = self.current_node(vertex2)
-        
         subjects_dep = {Dep.nsubj, Dep.nsubjpass, Dep.csubj, Dep.csubjpass, Dep.agent, Dep.expl}
-
-        if node1.dep in subjects_dep and node2.dep in subjects_dep:
-            return True
         objects_dep = {Dep.dobj, Dep.iobj, Dep.pobj, Dep.dative, Dep.attr, Dep.oprd, Dep.pcomp}
-        main_concept_dep =  subjects_dep | objects_dep
-        
-        if node1.dep in main_concept_dep and node2.dep in main_concept_dep:
+        main_concept_dep = subjects_dep | objects_dep
+
+        # 同类角色不连接（避免 subject-subject / object-object 连接）
+        if (node1.dep in subjects_dep and node2.dep in subjects_dep) or (node1.dep in main_concept_dep and node2.dep in main_concept_dep):
+            logger.debug(f"have_no_link=True: '{node1.text}'({node1.dep.name}) ↔ '{node2.text}'({node2.dep.name}) [same role]")
             return True
         
         return False
+
     
     def is_sub_vertex(self, vertex1: Vertex, vertex2: Vertex) -> bool:
         # check if vertex1 is a sub-vertex of vertex2 in this hyperedge
@@ -341,11 +365,14 @@ class Hypergraph:
             hypergraph = pickle.load(f)
         return hypergraph
     
-    def neighbors(self, vertex: Vertex, hop: int=-1) -> set[Vertex]:
-        # if hop == -1, return all reachable neighbors
+    def neighbors(self, vertex: Vertex, hop: int = -1) -> set[Vertex]:
+        """获取指定跳数内的邻居顶点"""
         if hop not in self.neighbor_map_cache:
+            logger.debug(f"Building neighbor map for hop={hop} (cache miss)")
             self.neighbor_map_cache[hop] = self._build_neighbors_map(hop)
-        return self.neighbor_map_cache[hop].get(vertex, set())
+        neighbors = self.neighbor_map_cache[hop].get(vertex, set())
+        logger.debug(f"neighbors({vertex.text()}, hop={hop}) → {len(neighbors)} vertices")
+        return neighbors
 
     def _build_neighbors_map(self, hop: int=-1) -> dict[Vertex, set[Vertex]]:
         # if hop == -1, return all reachable neighbors
@@ -421,7 +448,10 @@ class Hypergraph:
     
     def paths(self, vertex1: Vertex, vertex2: Vertex) -> list[Path]:
         if (vertex1, vertex2) in self.path_map_cache:
-            return self.path_map_cache[(vertex1, vertex2)]
+            cached = self.path_map_cache[(vertex1, vertex2)]
+            logger.debug(f"paths({vertex1.text()}, {vertex2.text()}) → {len(cached)} paths (cached)")
+            return cached
+        logger.debug(f"Computing paths between '{vertex1.text()}' and '{vertex2.text()}'")
         paths: list[Path] = []
         visited: set[Vertex] = set()
         to_visit: list[tuple[Vertex, list[Hyperedge]]] = [(vertex1, [])]
@@ -446,4 +476,5 @@ class Hypergraph:
                         to_visit.append((neighbor, new_path))
 
         self.path_map_cache[(vertex1, vertex2)] = paths
+        logger.debug(f"paths({vertex1.text()}, {vertex2.text()}) → {len(paths)} paths (computed)")
         return paths

@@ -1,10 +1,13 @@
 from typing import Dict, List, Set, Tuple
+import logging
 from hyper_simulation.hypergraph.hypergraph import Hypergraph as LocalHypergraph, Vertex
 from simulation import Hypergraph as SimHypergraph, Hyperedge as SimHyperedge, Node, Delta, DMatch
 from hyper_simulation.component.nli import get_nli_labels_batch
 from hyper_simulation.component.semantic_cluster import get_semantic_cluster_pairs, get_d_match
 from hyper_simulation.hypergraph.dependency import Pos
 import warnings
+
+logger = logging.getLogger(__name__)
 
 def convert_local_to_sim(
     local_hg: LocalHypergraph,
@@ -58,18 +61,20 @@ def compute_allowed_pairs(
     
     labels = get_nli_labels_batch(text_pairs)
     allowed: Set[Tuple[int, int]] = set()
+    logger.info(f"计算允许对: {len(text_pairs)}个节点对")
     
     for (text1, text2), label in zip(text_pairs, labels):
         q_id, d_id, _, _ = text_pair_to_ids[(text1, text2)]
         if label != "contradiction":  # 仅排除矛盾
             allowed.add((q_id, d_id))
     
+    logger.info(f"允许对计算完成: {len(allowed)}对 (非contradiction)")
     return allowed
 
 
 def build_delta_and_dmatch(
     query: SimHypergraph,
-     SimHypergraph,
+    data: SimHypergraph,
     query_texts: Dict[int, str],
     data_texts: Dict[int, str],
     query_node_edges: Dict[int, List[SimHyperedge]],
@@ -92,9 +97,11 @@ def build_delta_and_dmatch(
     d_delta_matches: Dict[Tuple[int, int], Set[Tuple[int, int]]] = {}
     
     # Step 1: 多节点语义簇（结构化匹配，带异常隔离）
+    cluster_count = 0
     for sc_q, sc_d, sim_score in get_semantic_cluster_pairs(query_local_hg, data_local_hg):
         if sim_score < 0.5:
             continue
+        cluster_count += 1
             
         # 过滤动词/助动词（保留名词性实体）
         q_vs = [v for v in sc_q.get_vertices() if not (v.pos_equal(Pos.VERB) or v.pos_equal(Pos.AUX))]
@@ -130,29 +137,26 @@ def build_delta_and_dmatch(
                 if vq in vertex_to_sim_id_q and vd in vertex_to_sim_id_d
             }
         except (AssertionError, AttributeError, IndexError) as e:
-            # 组件内部错误 → 降级为空匹配（不影响覆盖保障）
+            logger.warning(f"语义簇匹配异常: {type(e).__name__}, 降级为空匹配")
             warnings.warn(
                 f"Semantic cluster matching failed for cluster pair: {type(e).__name__}",
                 RuntimeWarning
             )
             matches = set()
         
-        # 【关键】总是添加D-Match条目（空集也有效，满足Rust要求）
         d_delta_matches[(sc_id, sc_id)] = matches
     
-    # Step 2: 【终极兜底】无条件为allowed_pairs中每个节点对创建单节点簇
-    # 设计理由：
-    #   • 不检查"是否已覆盖"——避免因映射错位/组件异常导致的漏覆盖
-    #   • 直接使用Sim ID——绕过LocalVertex映射复杂性
-    #   • 单节点簇必有自身匹配——确保D-Match非空
-    for q_id, d_id in allowed_pairs:
-        sc_id = delta.add_sematic_cluster_pair(
-            Node(q_id, query_texts.get(q_id, "")),
-            Node(d_id, data_texts.get(d_id, "")),
-            query_node_edges.get(q_id, []),
-            data_node_edges.get(d_id, [])
-        )
-        d_delta_matches[(sc_id, sc_id)] = {(q_id, d_id)}  # 单节点簇必有自身匹配
+    logger.info(f"多节点簇处理完成: {cluster_count}个簇")
+    
+    # # Step 2: 为allowed_pairs中每个节点对创建单节点簇
+    # for q_id, d_id in allowed_pairs:
+    #     sc_id = delta.add_sematic_cluster_pair(
+    #         Node(q_id, query_texts.get(q_id, "")),
+    #         Node(d_id, data_texts.get(d_id, "")),
+    #         query_node_edges.get(q_id, []),
+    #         data_node_edges.get(d_id, [])
+    #     )
+    #     d_delta_matches[(sc_id, sc_id)] = {(q_id, d_id)}  # 单节点簇必有自身匹配
     
     return delta, DMatch.from_dict(d_delta_matches)
 
@@ -189,6 +193,8 @@ def compute_hyper_simulation(
         dmatch_threshold=0.3
     )
     
-    # 执行超图模拟（理论完备：无panic风险）
+    # 执行超图模拟
+    logger.info("执行超图模拟...")
     simulation = SimHypergraph.get_hyper_simulation(q_sim, d_sim, delta, d_match)
+    logger.info(f"模拟完成: {len(simulation)}个映射")
     return simulation, q_vertices, d_vertices
