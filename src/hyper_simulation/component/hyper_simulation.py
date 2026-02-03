@@ -1,3 +1,4 @@
+import time
 from typing import Dict, List, Set, Tuple
 import logging
 from hyper_simulation.hypergraph.hypergraph import Hypergraph as LocalHypergraph, Vertex
@@ -6,8 +7,12 @@ from hyper_simulation.component.nli import get_nli_labels_batch
 from hyper_simulation.component.semantic_cluster import get_semantic_cluster_pairs, get_d_match
 from hyper_simulation.hypergraph.dependency import Pos
 import warnings
+from tqdm import tqdm
+from hyper_simulation.utils.log import getLogger
 
-logger = logging.getLogger(__name__)
+import logging
+logger = getLogger(__name__)
+
 
 def convert_local_to_sim(
     local_hg: LocalHypergraph,
@@ -61,13 +66,13 @@ def compute_allowed_pairs(
     
     labels = get_nli_labels_batch(text_pairs)
     allowed: Set[Tuple[int, int]] = set()
+
     logger.info(f"计算允许对: {len(text_pairs)}个节点对")
     
     for (text1, text2), label in zip(text_pairs, labels):
         q_id, d_id, _, _ = text_pair_to_ids[(text1, text2)]
         if label != "contradiction":  # 仅排除矛盾
             allowed.add((q_id, d_id))
-    
     logger.info(f"允许对计算完成: {len(allowed)}对 (非contradiction)")
     return allowed
 
@@ -93,6 +98,11 @@ def build_delta_and_dmatch(
       2. 单节点簇：无条件兜底（绕过LocalVertex映射，直接使用Sim ID）
       3. D-Match完备性：每个Delta条目必有D-Match条目（空集也有效）
     """
+    
+    delta_start = time.time()
+
+    logger.info(f"\t\tcalc the delta")
+    
     delta = Delta()
     d_delta_matches: Dict[Tuple[int, int], Set[Tuple[int, int]]] = {}
     
@@ -146,17 +156,20 @@ def build_delta_and_dmatch(
         
         d_delta_matches[(sc_id, sc_id)] = matches
     
-    logger.info(f"多节点簇处理完成: {cluster_count}个簇")
+    delta_end = time.time()
+
+    logger.info(f"\t\tdelta end, cost {delta_end - delta_start}s")
+    logger.info(f"\t\t多节点簇处理完成: {cluster_count}个簇")
     
-    # # Step 2: 为allowed_pairs中每个节点对创建单节点簇
-    # for q_id, d_id in allowed_pairs:
-    #     sc_id = delta.add_sematic_cluster_pair(
-    #         Node(q_id, query_texts.get(q_id, "")),
-    #         Node(d_id, data_texts.get(d_id, "")),
-    #         query_node_edges.get(q_id, []),
-    #         data_node_edges.get(d_id, [])
-    #     )
-    #     d_delta_matches[(sc_id, sc_id)] = {(q_id, d_id)}  # 单节点簇必有自身匹配
+    # Step 2: 为allowed_pairs中每个节点对创建单节点簇
+    for q_id, d_id in allowed_pairs:
+        sc_id = delta.add_sematic_cluster_pair(
+            Node(q_id, query_texts.get(q_id, "")),
+            Node(d_id, data_texts.get(d_id, "")),
+            query_node_edges.get(q_id, []),
+            data_node_edges.get(d_id, [])
+        )
+        d_delta_matches[(sc_id, sc_id)] = {(q_id, d_id)}  # 单节点簇必有自身匹配
     
     return delta, DMatch.from_dict(d_delta_matches)
 
@@ -169,12 +182,19 @@ def compute_hyper_simulation(
     执行超图模拟
     理论保证：type_same(u,v)=True ⇒ ∃语义簇覆盖(u,v)（通过无条件兜底实现）
     """
+    
+    logger.info(f"\tStart Hyper Simulation")
+    
     # 转换到SimHypergraph空间（获得连续Node ID）
     q_sim, q_texts, q_vertices, q_edges, q_vid_map = convert_local_to_sim(query_hg)
     d_sim, d_texts, d_vertices, d_edges, d_vid_map = convert_local_to_sim(data_hg)
     
+    denial_start = time.time()
+    logger.info(f"\tstart denial comment calc")
     # 计算宽松的语义允许性
+    
     allowed = compute_allowed_pairs(q_vertices, d_vertices)
+    
     
     # 定义type_same_fn（基于Sim ID空间）
     def type_same_fn(x_id: int, y_id: int) -> bool:
@@ -182,6 +202,10 @@ def compute_hyper_simulation(
     
     q_sim.set_type_same_fn(type_same_fn)
     d_sim.set_type_same_fn(type_same_fn)
+    
+    denial_end = time.time()
+    logger.info(f"\tdenial comment cost {denial_end - denial_start}s")
+    logger.info(f"\tstart build delta and d-match")
     
     # 构建Delta/D-Match（100%覆盖保障 + 异常隔离）
     delta, d_match = build_delta_and_dmatch(
@@ -194,7 +218,12 @@ def compute_hyper_simulation(
     )
     
     # 执行超图模拟
-    logger.info("执行超图模拟...")
+    start_time = time.time()
+    logger.info("\t执行超图模拟...")
     simulation = SimHypergraph.get_hyper_simulation(q_sim, d_sim, delta, d_match)
-    logger.info(f"模拟完成: {len(simulation)}个映射")
+    
+    end_time = time.time()
+    logger.info(f"\t模拟完成: {len(simulation)}个映射")
+    logger.info(f"\thyper simulation main cost {end_time - start_time}s")
+
     return simulation, q_vertices, d_vertices

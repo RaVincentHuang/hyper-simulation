@@ -4,7 +4,9 @@ import argparse
 from tqdm import tqdm
 from typing import List, Dict, Any
 from pathlib import Path
-
+import logging
+from hyper_simulation.utils.log import getLogger
+logger = getLogger(__name__)
 from hyper_simulation.question_answer.vmdit.metrics import (
     exact_match_score, 
     metric_max_over_ground_truths,
@@ -286,7 +288,7 @@ def run_rag_evaluation(
                 continue
             else:
                 from hyper_simulation.component.consistent import query_fixup
-                fixed_query_instances = [query_fixup(qi, task) for qi in query_instances]
+                fixed_query_instances = [query_fixup(qi, task) for qi in query_instances[:1]]
         else:
             raise ValueError(f"Unsupported method: {method}")
         

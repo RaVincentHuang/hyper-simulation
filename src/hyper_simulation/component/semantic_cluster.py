@@ -10,8 +10,10 @@ from hyper_simulation.component.embedding import get_embedding_batch, cosine_sim
 
 from hyper_simulation.component.nli import get_nli_label, get_nli_labels_batch
 
+from tqdm import tqdm
+from hyper_simulation.utils.log import getLogger
 
-logger = logging.getLogger(__name__)
+logger = getLogger(__name__)
 
 def abstraction_lca(query: list[str], data: list[str]) -> tuple[str, int]:
     """
@@ -303,8 +305,8 @@ class SemanticCluster:
                 if current.head is None:
                     # 无法继续追溯：打印精准调试信息
                     logger.warning(f"路径追溯失败 u→k: Node '{current.text}' (index={current.index}) has no head "
-                        f"while tracing to LCA '{k.text}' (index={k.index}). "
-                        f"Trace: {' → '.join(current_trace)}")
+                            f"while tracing to LCA '{k.text}' (index={k.index}). "
+                            f"Trace: {' → '.join(current_trace)}")
                     break
                 current = current.head
                 current_trace.append(current.text)
@@ -323,8 +325,8 @@ class SemanticCluster:
                     if current.head is None:
                         # 无法继续追溯：打印精准调试信息
                         logger.warning(f"路径追溯失败 v→k: Node '{current.text}' (index={current.index}) has no head "
-                            f"while tracing to LCA '{k.text}' (index={k.index}). "
-                            f"Trace: {' → '.join(current_trace)}")
+                                f"while tracing to LCA '{k.text}' (index={k.index}). "
+                                f"Trace: {' → '.join(current_trace)}")
                         break
                     current = current.head
                     current_trace.append(current.text)
@@ -601,43 +603,6 @@ def match_vertices_by_triple(
     
     return matches
 
-
-def match_vertex_to_edge_by_triple(
-    vertex: Vertex,
-    edge: Hyperedge,
-    edge_cluster: SemanticCluster
-) -> tuple[bool, float]:
-    """判断顶点是否与边（三元组）匹配，返回 (命中, 分数)"""
-    triples = edge_cluster.to_triple()
-    if not triples:
-        return False, 0.0
-    
-    root_text, args = triples[0]
-    vertex_text = vertex.text()
-    
-    # 1. 检查是否与root匹配
-    root_sim = get_similarity(vertex_text, root_text)
-    if root_sim > 0.7:
-        return True, root_sim * 0.9  # root匹配给高分
-    
-    # 2. 检查是否与某个参数匹配
-    best_arg_score = 0.0
-    for arg in args:
-        label = get_nli_label(vertex_text, arg)
-        if label == "entailment":
-            score = 0.8
-        elif label == "neutral":
-            score = 0.5
-        else:
-            score = 0.0
-        best_arg_score = max(best_arg_score, score)
-    
-    if best_arg_score > 0.5:
-        return True, best_arg_score * 0.7  # 参数匹配给中等分
-    
-    return False, 0.0
-
-
 def path_clean(paths: list[Path]) -> list[Path]:
     # remove paths that share same hyperedges
     # in a path, hyperedges are unique, if not, keep only one
@@ -695,18 +660,6 @@ def _build_cluster_closure(
     """
     递归地构建cluster闭包。
     如果一对匹配的边中有节点匹配了其他边，那就添加进去，直到没有新的边可以添加。
-    
-    Args:
-        initial_q_edges: 初始的query边集合
-        initial_d_edges: 初始的data边集合
-        query_hypergraph: query超图
-        data_hypergraph: data超图
-        matched_edges: 所有匹配的边对列表 (q_edge, d_edge, score)
-        matched_vertices: 匹配的节点映射 {q_vertex: set[d_vertices]}
-        edge_similarity_threshold: 边相似度阈值
-    
-    Returns:
-        (query_edges闭包, data_edges闭包)
     """
     q_edges = set(initial_q_edges)
     d_edges = set(initial_d_edges)
@@ -726,118 +679,68 @@ def _build_cluster_closure(
     
     for edge in query_hypergraph.hyperedges:
         for vertex in edge.vertices:
-            if vertex not in q_vertex_to_edges:
-                q_vertex_to_edges[vertex] = set()
-            q_vertex_to_edges[vertex].add(edge)
+            q_vertex_to_edges.setdefault(vertex, set()).add(edge)
     
     for edge in data_hypergraph.hyperedges:
         for vertex in edge.vertices:
-            if vertex not in d_vertex_to_edges:
-                d_vertex_to_edges[vertex] = set()
-            d_vertex_to_edges[vertex].add(edge)
+            d_vertex_to_edges.setdefault(vertex, set()).add(edge)
     
-    # 构建匹配边对的快速查找映射
+    # 构建匹配边对的快速查找映射（仅保留高置信匹配）
     q_edge_to_matched_d_edges: dict[Hyperedge, list[tuple[Hyperedge, float]]] = {}
     d_edge_to_matched_q_edges: dict[Hyperedge, list[tuple[Hyperedge, float]]] = {}
     
     for q_edge, d_edge, score in matched_edges:
         if score >= edge_similarity_threshold:
-            if q_edge not in q_edge_to_matched_d_edges:
-                q_edge_to_matched_d_edges[q_edge] = []
-            q_edge_to_matched_d_edges[q_edge].append((d_edge, score))
-            
-            if d_edge not in d_edge_to_matched_q_edges:
-                d_edge_to_matched_q_edges[d_edge] = []
-            d_edge_to_matched_q_edges[d_edge].append((q_edge, score))
+            q_edge_to_matched_d_edges.setdefault(q_edge, []).append((d_edge, score))
+            d_edge_to_matched_q_edges.setdefault(d_edge, []).append((q_edge, score))
     
-    # 递归添加匹配的边，直到闭包
+    # 闭包迭代
     changed = True
     iteration = 0
-    max_iterations = 5  # 防止无限循环
+    max_iterations = len(matched_edges)
     
     while changed and iteration < max_iterations:
         changed = False
         iteration += 1
-        if iteration > 1:
-            logger.debug(f"闭包迭代 {iteration}: q_edges={len(q_edges)}, d_edges={len(d_edges)}")
+        # if iteration > 1:
+            # with logging_redirect_tqdm():
+            #     logger.info(f"闭包迭代 {iteration}: q_edges={len(q_edges)}, d_edges={len(d_edges)}")
         
-        # 收集当前cluster中的所有顶点
-        q_vertices_in_cluster: set[Vertex] = set()
-        for edge in q_edges:
-            q_vertices_in_cluster.update(q_edge_to_vertices.get(edge, set()))
+        # 收集当前 cluster 中的所有顶点
+        q_vertices_in_cluster = {v for e in q_edges for v in q_edge_to_vertices.get(e, ())}
+        d_vertices_in_cluster = {v for e in d_edges for v in d_edge_to_vertices.get(e, ())}
         
-        d_vertices_in_cluster: set[Vertex] = set()
-        for edge in d_edges:
-            d_vertices_in_cluster.update(d_edge_to_vertices.get(edge, set()))
-        
-        # 对于当前cluster中的每个query顶点，找到匹配的data顶点
-        # 然后找到包含这些匹配顶点的边，如果这些边与query中的边匹配，则添加
+        # 正向：从 query cluster 出发，通过匹配顶点扩展 data 边，再带回 query 边
         for q_vertex in q_vertices_in_cluster:
-            matched_d_vertices = matched_vertices.get(q_vertex, set())
-            for d_vertex in matched_d_vertices:
-                # 找到包含这个d_vertex的边
-                candidate_d_edges = d_vertex_to_edges.get(d_vertex, set())
-                for d_edge in candidate_d_edges:
+            for d_vertex in matched_vertices.get(q_vertex, ()):
+                for d_edge in d_vertex_to_edges.get(d_vertex, ()):
                     if d_edge in d_edges:
-                        continue  # 已经在cluster中
-                    
-                    # 检查是否有query边与这个d_edge匹配
-                    matched_q_edges = d_edge_to_matched_q_edges.get(d_edge, [])
-                    for q_edge, score in matched_q_edges:
-                        if q_edge in q_edges:
-                            continue  # 已经在cluster中
-                        
-                        # 检查q_edge是否与当前cluster中的顶点有连接
-                        q_edge_vertices = q_edge_to_vertices.get(q_edge, set())
-                        if q_edge_vertices & q_vertices_in_cluster:  # 有交集
-                            # 额外检查：使用三元组验证点-边匹配
-                            d_edge_cluster = SemanticCluster([d_edge], data_hypergraph.doc)
-                            vertex_edge_match, match_score = match_vertex_to_edge_by_triple(
-                                q_vertex, d_edge, d_edge_cluster
-                            )
-                            
-                            # 如果三元组匹配分数足够高，或者原始分数很高，则添加
-                            if vertex_edge_match or score >= 0.75:
+                        continue
+                    # 检查该 d_edge 是否与当前 data cluster 有顶点连接
+                    if d_edge_to_vertices[d_edge] & d_vertices_in_cluster:
+                        # 找到其匹配的 query 边
+                        for q_edge, _ in d_edge_to_matched_q_edges.get(d_edge, []):
+                            if q_edge not in q_edges and q_edge_to_vertices[q_edge] & q_vertices_in_cluster:
                                 q_edges.add(q_edge)
                                 d_edges.add(d_edge)
                                 changed = True
-                                break  # 找到一个匹配就够了
         
-        # 反向：对于当前cluster中的每个data顶点，找到匹配的query顶点
+        # 反向：从 data cluster 出发，通过匹配顶点扩展 query 边，再带回 data 边
         for d_vertex in d_vertices_in_cluster:
-            # 找到匹配的query顶点
+            # 高效反向查找匹配的 query 顶点（避免 O(n) 遍历）
             matched_q_vertices = [q_v for q_v, d_vs in matched_vertices.items() if d_vertex in d_vs]
             for q_vertex in matched_q_vertices:
-                # 找到包含这个q_vertex的边
-                candidate_q_edges = q_vertex_to_edges.get(q_vertex, set())
-                for q_edge in candidate_q_edges:
+                for q_edge in q_vertex_to_edges.get(q_vertex, ()):
                     if q_edge in q_edges:
-                        continue  # 已经在cluster中
-                    
-                    # 检查是否有data边与这个q_edge匹配
-                    matched_d_edges = q_edge_to_matched_d_edges.get(q_edge, [])
-                    for d_edge, score in matched_d_edges:
-                        if d_edge in d_edges:
-                            continue  # 已经在cluster中
-                        
-                        # 检查d_edge是否与当前cluster中的顶点有连接
-                        d_edge_vertices = d_edge_to_vertices.get(d_edge, set())
-                        if d_edge_vertices & d_vertices_in_cluster:  # 有交集
-                            # 额外检查：使用三元组验证点-边匹配
-                            q_edge_cluster = SemanticCluster([q_edge], query_hypergraph.doc)
-                            vertex_edge_match, match_score = match_vertex_to_edge_by_triple(
-                                d_vertex, q_edge, q_edge_cluster
-                            )
-                            
-                            # 如果三元组匹配分数足够高，或者原始分数很高，则添加
-                            if vertex_edge_match or score >= 0.75:
+                        continue
+                    if q_edge_to_vertices[q_edge] & q_vertices_in_cluster:
+                        for d_edge, _ in q_edge_to_matched_d_edges.get(q_edge, []):
+                            if d_edge not in d_edges and d_edge_to_vertices[d_edge] & d_vertices_in_cluster:
                                 q_edges.add(q_edge)
                                 d_edges.add(d_edge)
                                 changed = True
-                                break  # 找到一个匹配就够了
-    
-    return q_edges, d_edges
 
+    return q_edges, d_edges
 
 def get_semantic_cluster_pairs(query_hypergraph: Hypergraph, data_hypergraph: Hypergraph) -> list[tuple[SemanticCluster, SemanticCluster, float]]:
     """
@@ -927,7 +830,7 @@ def get_semantic_cluster_pairs(query_hypergraph: Hypergraph, data_hypergraph: Hy
                     if q_v not in matched_vertices:
                         matched_vertices[q_v] = set()
                     matched_vertices[q_v].add(d_v)
-    
+                    
     logger.info(f"边匹配完成: {len(matched_edges)}对 (阈值={edge_similarity_threshold})")
     
     # Step 4: 对于每一对匹配的边，递归地构建cluster闭包
@@ -949,7 +852,8 @@ def get_semantic_cluster_pairs(query_hypergraph: Hypergraph, data_hypergraph: Hy
             matched_vertices,
             edge_similarity_threshold
         )
-        
+        # with logging_redirect_tqdm():
+        #     logger.debug(f"闭包迭代完成: q_edges={len(q_edges_closure)}, d_edges={len(d_edges_closure)}")
         # 检查是否已经处理过这个pair
         q_edge_ids = frozenset(id(e) for e in q_edges_closure)
         d_edge_ids = frozenset(id(e) for e in d_edges_closure)
@@ -1045,7 +949,7 @@ def _legal_vertices(v1: Vertex, v2: Vertex) -> bool:
     # Step 1: 语义兼容性（保留你原有的 is_domain 逻辑）
     label = get_nli_label(v1.text(), v2.text())
     if not (label == "entailment" or (label == "neutral" and v1.is_domain(v2))):
-        logger.debug(f"节点语义不兼容: '{v1.text()}' vs '{v2.text()}' (NLI={label})")
+        logger.info(f"节点语义不兼容: '{v1.text()}' vs '{v2.text()}' (NLI={label})")
         return False
 
     # Step 2: 【新增】句法角色（Dep）兼容性检查
@@ -1066,7 +970,7 @@ def _legal_vertices(v1: Vertex, v2: Vertex) -> bool:
         return True
 
     # 其他情况拒绝（即使 is_domain 为真）
-    logger.debug(f"依存关系不匹配: '{v1.text()}'({dep1.name}) vs '{v2.text()}'({dep2.name})")
+    logger.info(f"依存关系不匹配: '{v1.text()}'({dep1.name}) vs '{v2.text()}'({dep2.name})")
     return False
 
 def _path_score(s1: str, cnt1: int, s2: str, cnt2: int, path_score_cache: dict[tuple[str, str], float]) -> float:
@@ -1097,7 +1001,7 @@ def _get_matched_vertices(vertices1: list[Vertex], vertices2: list[Vertex]) -> d
     return matched_vertices
 
 def get_d_match(sc1: SemanticCluster, sc2: SemanticCluster, score_threshold: float=0.0) -> list[tuple[Vertex, Vertex, float]]:
-    logger.debug(f"D-Match开始: sc1={len(sc1.hyperedges)}边, sc2={len(sc2.hyperedges)}边, 阈值={score_threshold}")
+    logger.info(f"D-Match开始: sc1={len(sc1.hyperedges)}边, sc2={len(sc2.hyperedges)}边, 阈值={score_threshold}")
     matches: list[tuple[Vertex, Vertex]] = []
     # 如果两个边的节点很少，则输出结果会很少
     sc1_vertices = list(filter(lambda v: not (v.pos_equal(Pos.VERB) or v.pos_equal(Pos.AUX)), sc1.get_vertices()))
@@ -1190,7 +1094,7 @@ def get_d_match(sc1: SemanticCluster, sc2: SemanticCluster, score_threshold: flo
             
             # === 修复3: 移除危险 assert，替换为防御性跳过 + 精准日志 ===
             if not s2 or not s2_inv:
-                logger.debug(f"D-Match跳过: Empty paths for vertex pair '{v.text()}' ↔ '{v_prime.text()}' in cluster. s2='{s2}', s2_inv='{s2_inv}'")
+                logger.info(f"D-Match跳过: Empty paths for vertex pair '{v.text()}' ↔ '{v_prime.text()}' in cluster. s2='{s2}', s2_inv='{s2_inv}'")
                 continue
             
             if _better_path(s1, s2, s2_inv):
@@ -1218,9 +1122,9 @@ def get_d_match(sc1: SemanticCluster, sc2: SemanticCluster, score_threshold: flo
     
     for vertex in sc1_vertices:
         if vertex in in_paths_of_sc1:
-            logger.debug(f"SC1 Vertex '{vertex.text()}' In Paths: {[s for s, _ in in_paths_of_sc1[vertex]]}")
+            logger.info(f"SC1 Vertex '{vertex.text()}' In Paths: {[s for s, _ in in_paths_of_sc1[vertex]]}")
         if vertex in out_paths_of_sc1:
-            logger.debug(f"SC1 Vertex '{vertex.text()}' Out Paths: {[s for s, _ in out_paths_of_sc1[vertex]]}")
+            logger.info(f"SC1 Vertex '{vertex.text()}' Out Paths: {[s for s, _ in out_paths_of_sc1[vertex]]}")
     
     
     in_paths_of_sc2: dict[Vertex, list[tuple[str, int]]] = {}
@@ -1235,9 +1139,9 @@ def get_d_match(sc1: SemanticCluster, sc2: SemanticCluster, score_threshold: flo
     
     for vertex in sc2_vertices:
         if vertex in in_paths_of_sc2:
-            logger.debug(f"SC2 Vertex '{vertex.text()}' In Paths: {[s for s, _ in in_paths_of_sc2[vertex]]}")
+            logger.info(f"SC2 Vertex '{vertex.text()}' In Paths: {[s for s, _ in in_paths_of_sc2[vertex]]}")
         if vertex in out_paths_of_sc2:
-            logger.debug(f"SC2 Vertex '{vertex.text()}' Out Paths: {[s for s, _ in out_paths_of_sc2[vertex]]}")
+            logger.info(f"SC2 Vertex '{vertex.text()}' Out Paths: {[s for s, _ in out_paths_of_sc2[vertex]]}")
     
     root_path_of_sc1: dict[Vertex, list[tuple[str, int]]] = {}
     for e in sc1.hyperedges:
@@ -1328,7 +1232,7 @@ def get_d_match(sc1: SemanticCluster, sc2: SemanticCluster, score_threshold: flo
         
     # filter by score_threshold
     matches = list(filter(lambda pair: match_scores.get(pair, 0.0) >= score_threshold, matches))
-    logger.debug(f"D-Match过滤后: {len(matches)}个匹配 (阈值={score_threshold})")
+    logger.info(f"D-Match过滤后: {len(matches)}个匹配 (阈值={score_threshold})")
     
     # delete the matches that if (u, v1) and (u, v2) in matches and v1 != v2, keep only the one with highest score
     final_matches: list[tuple[Vertex, Vertex, float]] = []

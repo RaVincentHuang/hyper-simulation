@@ -7,7 +7,13 @@ from hyper_simulation.hypergraph.hypergraph import Hypergraph as LocalHypergraph
 from hyper_simulation.hypergraph.dependency import Entity, Pos, Dep
 from hyper_simulation.component.hyper_simulation import compute_hyper_simulation
 from hyper_simulation.component.embedding import get_embedding_batch, cosine_similarity
+from hyper_simulation.utils.log import getLogger
+from tqdm import tqdm
+# from tqdm.contrib.logging import logging_redirect_tqdm
+import logging
 
+
+logger = getLogger(__name__, 'info')
 
 def generate_instance_id(query: str) -> str:
     normalized = ''.join(query.split()).lower()
@@ -30,7 +36,7 @@ def load_hypergraphs_for_instance(
     query_hg = LocalHypergraph.load(str(instance_dir / "query.pkl"))
     
     data_hgs = []
-    for idx in range(len(query_instance.data)):
+    for idx in (range(len(query_instance.data))):
         data_path = instance_dir / f"data_{idx}.pkl"
         if data_path.exists():
             try:
@@ -73,7 +79,13 @@ def consistent_detection(
     当 δ > θ 时，验证 hyper simulation 是否满足 ∀u∈V_q, ∃v∈V_d: (u,v)∈Π
     """
     # Step 1: 计算向量距离
+    
+    logger.info(f"Enter the consistent detection")
+    
     distance = get_distance(query_text, data_text)
+    
+    
+    logger.info(f"Compute the cosine of the context {distance}, while threshold is {distance_threshold}")
     
     # 距离足够近 → 自动一致
     if distance <= distance_threshold:
@@ -120,10 +132,13 @@ def query_fixup(query: QueryInstance, dataset_name: str = "hotpotqa") -> QueryIn
     """
     基于hyper simulation的一致性修复
     """
+
+    logger.info(f"\tLoad the Query & Data hypergraphs.")
+    
     query_hg, data_hgs = load_hypergraphs_for_instance(query, dataset_name)
     
     fixed_data = []
-    for doc_text, data_hg in zip(query.data, data_hgs):
+    for doc_text, data_hg in tqdm(zip(query.data, data_hgs), desc='\tHyper Simulation for Query.', leave=True):
         if data_hg is None:
             fixed_data.append(doc_text)
             continue

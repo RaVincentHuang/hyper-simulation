@@ -101,7 +101,7 @@ with semaphore:
 
 具体可以看`src/hyper_simulation/question_answer/retrival/analysis.py`中注释掉的。
 
-另外`save_graph`, `save_graph`是存取图的方法。
+另外`save_graph`, `save_graph` 是存取图的方法。
 
 ### Analysis
 重点是
