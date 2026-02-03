@@ -761,7 +761,7 @@ def get_semantic_cluster_pairs(query_hypergraph: Hypergraph, data_hypergraph: Hy
     embeddings_q = get_embedding_batch(texts_q)
     for i, sc in enumerate(single_cluster_q):
         sc.embedding = np.array(embeddings_q[i])
-    
+
     single_cluster_d: list[SemanticCluster] = []
     edge_to_cluster_d: dict[Hyperedge, SemanticCluster] = {}
     for e in data_hypergraph.hyperedges:
@@ -773,7 +773,7 @@ def get_semantic_cluster_pairs(query_hypergraph: Hypergraph, data_hypergraph: Hy
     embeddings_d = get_embedding_batch(texts_d)
     for i, sc in enumerate(single_cluster_d):
         sc.embedding = np.array(embeddings_d[i])
-    
+    logging.info("edge_to_cluster and embedding")    
     # Step 2: 匹配所有的节点
     text_pair_to_node_pairs: dict[tuple[str, str], tuple[Vertex, Vertex]] = {}
     for node_q in sorted(query_hypergraph.vertices, key=_vertex_sort_key):
@@ -786,14 +786,14 @@ def get_semantic_cluster_pairs(query_hypergraph: Hypergraph, data_hypergraph: Hy
     for i, text_pair in enumerate(text_pairs):
         node_pair = text_pair_to_node_pairs[text_pair]
         node_pair_to_label[node_pair] = labels[i]
-    
+    logging.info("nli node_pair_to_label")
     matched_vertices: dict[Vertex, set[Vertex]] = {}
     for (node_q, node_d), label in node_pair_to_label.items():
         if label == "entailment" or (label == "neutral" and node_q.is_domain(node_d)):
             if node_q not in matched_vertices:
                 matched_vertices[node_q] = set()
             matched_vertices[node_q].add(node_d)
-    
+        logging.info("nli matched_vertices")
     # Step 3: 匹配所有的边对（结合embedding和三元组相似度）
     matched_edges: list[tuple[Hyperedge, Hyperedge, float]] = []
     edge_similarity_threshold = 0.6  # 边相似度阈值
