@@ -17,3 +17,6 @@ __pycache__/
 models/
 models/contriever-msmarco
 logs/
+
+*.log
+*.trace
