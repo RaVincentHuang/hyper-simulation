@@ -288,7 +288,7 @@ def run_rag_evaluation(
                 continue
             else:
                 from hyper_simulation.component.consistent import query_fixup
-                fixed_query_instances = [query_fixup(qi, task) for qi in query_instances[:1]]
+                fixed_query_instances = [query_fixup(qi, task) for qi in query_instances]
         else:
             raise ValueError(f"Unsupported method: {method}")
         
