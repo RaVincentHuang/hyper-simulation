@@ -2,6 +2,9 @@ import logging
 from pathlib import Path
 from logging.handlers import RotatingFileHandler
 from tqdm import tqdm
+from contextvars import ContextVar
+current_task: ContextVar[str] = ContextVar("task", default="hotpotqa")
+current_query_id: ContextVar[str] = ContextVar("query_id", default="")
 
 # 1. 定义一个自定义 Handler
 class TqdmLoggingHandler(logging.Handler):
@@ -18,7 +21,7 @@ class TqdmLoggingHandler(logging.Handler):
         except Exception:
             self.handleError(record)
 
-def getLogger(name: str, query_id: str = "", dataset: str = "hotpotqa", level: str = "INFO", log_dir: str = "logs") -> logging.Logger:
+def getLogger(name: str, level: str = "INFO", log_dir: str = "logs") -> logging.Logger:
     """
     配置全局日志：Tqdm控制台兼容 + 轮转文件
     """
@@ -32,11 +35,11 @@ def getLogger(name: str, query_id: str = "", dataset: str = "hotpotqa", level: s
         "ERROR": logging.ERROR
     }
     log_level = level_map.get(level.upper(), logging.INFO)
-    
-    if query_id:
-        log_path = Path(log_dir, dataset) / query_id
-    else:
-        log_path = Path(log_dir, dataset)
+    qid = current_query_id.get()
+    task = current_task.get()
+    log_path = Path(log_dir) / task
+    if qid:
+        log_path = log_path / qid
     log_path.mkdir(exist_ok=True, parents=True) # parents=True防止父目录不存在报错
     
     # 通用格式化器

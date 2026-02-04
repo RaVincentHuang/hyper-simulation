@@ -9,10 +9,8 @@ from hyper_simulation.component.hyper_simulation import compute_hyper_simulation
 from hyper_simulation.component.embedding import get_embedding_batch, cosine_similarity
 from hyper_simulation.utils.log import getLogger
 from tqdm import tqdm
+from hyper_simulation.utils.log import current_query_id
 # from tqdm.contrib.logging import logging_redirect_tqdm
-
-
-logger = getLogger(__name__, 'info')
 
 def generate_instance_id(query: str) -> str:
     normalized = ''.join(query.split()).lower()
@@ -25,6 +23,7 @@ def load_hypergraphs_for_instance(
     base_dir: str = "data/hypergraph"
 ) -> Tuple[LocalHypergraph, List[LocalHypergraph]]:
     instance_id = generate_instance_id(query_instance.query)
+    current_query_id.set(instance_id)
     instance_dir = Path(base_dir) / dataset_name / instance_id
     
     if not instance_dir.exists():
@@ -67,6 +66,7 @@ def get_distance(text1: str, text2: str) -> float:
 
 
 def consistent_detection(
+    query: QueryInstance,
     query_hg: LocalHypergraph,
     data_hg: LocalHypergraph,
     query_text: str,
@@ -78,32 +78,30 @@ def consistent_detection(
     当 δ > θ 时，验证 hyper simulation 是否满足 ∀u∈V_q, ∃v∈V_d: (u,v)∈Π
     """
     # Step 1: 计算向量距离
-    
-    logger.debug(f"Enter the consistent detection")
+    consistent_logger = getLogger("consistency")
+    consistent_logger.debug(f"Enter the consistent detection")
     
     distance = get_distance(query_text, data_text)
     
-    
-    logger.debug(f"Compute the cosine of the context {distance}, while threshold is {distance_threshold}")
+    consistent_logger.info(f"Compute the cosine of the context {distance}, while threshold is {distance_threshold}")
+    # query.add_simulation_log(data_id=1, log=f"Query:\n{query_text}\nData:\n{data_text}\nCompute the cosine of the context {distance}, while threshold is {distance_threshold}")
     
     # 距离足够近 → 自动一致
     if distance <= distance_threshold:
         return False, f"[CONSISTENT] Distance={distance:.3f} ≤ threshold={distance_threshold}"
     
     # Step 2: 执行hyper simulation
+    consistent_logger.debug(f"Enter the hyper_simulation")
     simulation, q_vertices_map, d_vertices_map = compute_hyper_simulation(query_hg, data_hg)
     
+    consistent_logger.debug(f"Enter the consistent detection")
     # Step 3: 验证全覆盖条件
     evidence_lines = []
     has_contradiction = False
-    
     critical_q_vertices = [v for v in query_hg.vertices if is_critical_vertex(v)]
-    
     for q_vertex in critical_q_vertices:
-        # 检查该顶点是否在simulation中有匹配
         matched = False
         for sim_q_id, sim_d_ids in simulation.items():
-            # 通过ID映射找到对应的原始顶点
             if q_vertices_map[sim_q_id].id == q_vertex.id and len(sim_d_ids) > 0:
                 matched = True
                 break
@@ -111,6 +109,9 @@ def consistent_detection(
         if not matched:
             has_contradiction = True
             evidence_lines.append(f"MISSING: '{q_vertex.text()}'")
+
+    consistent_logger.info("\n".join(f"  • {line}" for line in evidence_lines))
+    # query.add_simulation_log(data_id=, log="\n".join(f"  • {line}" for line in evidence_lines))
     
     # 生成证据（严格基于hyper simulation结果）
     if has_contradiction:
@@ -131,10 +132,18 @@ def query_fixup(query: QueryInstance, dataset_name: str = "hotpotqa") -> QueryIn
     """
     基于hyper simulation的一致性修复
     """
-
-    logger.debug(f"\tLoad the Query & Data hypergraphs.")
-    
     query_hg, data_hgs = load_hypergraphs_for_instance(query, dataset_name)
+    hg_logger = getLogger("hypergraph", level="DEBUG")
+    hg_logger.debug(f"=== Query Text===")
+    hg_logger.debug(f"{query.query}")
+    hg_logger.debug(f"=== Query Hypergraph===")
+    query_hg.log_summary(hg_logger)
+    for i, d in enumerate(data_hgs):
+        if d:
+            hg_logger.debug(f"=== Query Text #{i}===")
+            hg_logger.debug(f"{query.data[i]}")
+            hg_logger.debug(f"=== Data Hypergraph #{i} ===")
+            d.log_summary(hg_logger)
     
     fixed_data = []
     for doc_text, data_hg in tqdm(zip(query.data, data_hgs), desc='\tHyper Simulation for Query.', leave=True):
@@ -143,7 +152,7 @@ def query_fixup(query: QueryInstance, dataset_name: str = "hotpotqa") -> QueryIn
             continue
         
         has_contradiction, evidence = consistent_detection(
-            query_hg, data_hg, query.query, doc_text
+            query, query_hg, data_hg, query.query, doc_text
         )
         
         if has_contradiction:

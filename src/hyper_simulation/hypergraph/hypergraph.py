@@ -478,3 +478,45 @@ class Hypergraph:
         self.path_map_cache[(vertex1, vertex2)] = paths
         logger.debug(f"paths({vertex1.text()}, {vertex2.text()}) → {len(paths)} paths (computed)")
         return paths
+
+    def log_summary(self, logger: logging.Logger, level: str = "DEBUG", max_vertices: int = 20, max_edges: int = 10) -> None:
+        """
+        将超图结构摘要写入日志，避免输出过长。
+        
+        Args:
+            logger: 日志器实例（应已绑定当前 query_id/task）
+            level: 日志级别（"DEBUG", "INFO"）
+            max_vertices: 最多显示的顶点数
+            max_edges: 最多显示的超边数
+        """
+        log_func = getattr(logger, level.lower())
+        
+        # 基础统计
+        log_func(f"Hypergraph Summary:")
+        log_func(f"  • Vertices: {len(self.vertices)}")
+        log_func(f"  • Hyperedges: {len(self.hyperedges)}")
+        log_func(f"  • Doc ID: {getattr(self.doc, 'id', 'N/A')}")
+        
+        # 顶点示例（截断）
+        if self.vertices:
+            sample_vertices = self.vertices[:max_vertices]
+            vertex_texts = [f"    - [{v.id}] {v.text()[:50]}{'...' if len(v.text()) > 50 else ''}" for v in sample_vertices]
+            log_func("  • Sample Vertices:")
+            for vt in vertex_texts:
+                log_func(vt)
+            if len(self.vertices) > max_vertices:
+                log_func(f"    ... (+{len(self.vertices) - max_vertices} more)")
+        
+        # 超边示例（截断）
+        if self.hyperedges:
+            sample_edges = self.hyperedges[:max_edges]
+            edge_descs = []
+            for e in sample_edges:
+                node_ids = [v.id for v in e.vertices]
+                desc = f"    - Edge#{e.id if hasattr(e, 'id') else 'N/A'}: nodes={node_ids}, desc='{e.desc[:40]}...'"
+                edge_descs.append(desc)
+            log_func("  • Sample Hyperedges:")
+            for ed in edge_descs:
+                log_func(ed)
+            if len(self.hyperedges) > max_edges:
+                log_func(f"    ... (+{len(self.hyperedges) - max_edges} more)")
