@@ -10,7 +10,6 @@ from hyper_simulation.component.embedding import get_embedding_batch, cosine_sim
 from hyper_simulation.utils.log import getLogger
 from tqdm import tqdm
 # from tqdm.contrib.logging import logging_redirect_tqdm
-import logging
 
 
 logger = getLogger(__name__, 'info')
@@ -80,12 +79,12 @@ def consistent_detection(
     """
     # Step 1: 计算向量距离
     
-    logger.info(f"Enter the consistent detection")
+    logger.debug(f"Enter the consistent detection")
     
     distance = get_distance(query_text, data_text)
     
     
-    logger.info(f"Compute the cosine of the context {distance}, while threshold is {distance_threshold}")
+    logger.debug(f"Compute the cosine of the context {distance}, while threshold is {distance_threshold}")
     
     # 距离足够近 → 自动一致
     if distance <= distance_threshold:
@@ -133,7 +132,7 @@ def query_fixup(query: QueryInstance, dataset_name: str = "hotpotqa") -> QueryIn
     基于hyper simulation的一致性修复
     """
 
-    logger.info(f"\tLoad the Query & Data hypergraphs.")
+    logger.debug(f"\tLoad the Query & Data hypergraphs.")
     
     query_hg, data_hgs = load_hypergraphs_for_instance(query, dataset_name)
     

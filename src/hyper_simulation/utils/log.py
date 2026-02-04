@@ -18,7 +18,7 @@ class TqdmLoggingHandler(logging.Handler):
         except Exception:
             self.handleError(record)
 
-def getLogger(name: str, level: str = "INFO", log_dir: str = "logs") -> logging.Logger:
+def getLogger(name: str, query_id: str = "", dataset: str = "hotpotqa", level: str = "INFO", log_dir: str = "logs") -> logging.Logger:
     """
     配置全局日志：Tqdm控制台兼容 + 轮转文件
     """
@@ -33,8 +33,10 @@ def getLogger(name: str, level: str = "INFO", log_dir: str = "logs") -> logging.
     }
     log_level = level_map.get(level.upper(), logging.INFO)
     
-    # 创建日志目录
-    log_path = Path(log_dir)
+    if query_id:
+        log_path = Path(log_dir, dataset) / query_id
+    else:
+        log_path = Path(log_dir, dataset)
     log_path.mkdir(exist_ok=True, parents=True) # parents=True防止父目录不存在报错
     
     # 通用格式化器
@@ -50,7 +52,7 @@ def getLogger(name: str, level: str = "INFO", log_dir: str = "logs") -> logging.
     console.setLevel(logging.INFO) # 控制台通常只看 INFO
     console.setFormatter(formatter)
     # --- 修改点结束 ---
-    
+
     # 文件 Handler (保持不变)
     file_handler = RotatingFileHandler(
         filename=log_path / f"{name}.log",
