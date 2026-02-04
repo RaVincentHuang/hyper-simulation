@@ -237,6 +237,8 @@ class SemanticCluster:
         if key in self.vertices_paths:
             return self.vertices_paths[key]
         
+        logger.info(f"get_paths_between_vertices called for: '{v1.text()}' ↔ '{v2.text()}'")
+
         node_vertex: dict[Node, Vertex] = {}
         nodes_in_vertices: set[Node] = set()
         for he in self.hyperedges:
@@ -245,7 +247,7 @@ class SemanticCluster:
                     continue
                 nodes_in_vertices.add(he.current_node(v))
                 node_vertex[he.current_node(v)] = v
-        
+            
         nodes_in_vertices_list = list(nodes_in_vertices)
         queries: list[tuple[Node, Node]] = []
         for i in range(len(nodes_in_vertices_list) - 1):
@@ -269,16 +271,21 @@ class SemanticCluster:
                 if head in saved_nodes:
                     break
                 current = head
+                # >>> 新增：防止自环导致死循环 <<<
+                if head.head == head:
+                    logger.warning(f"Detected self-loop at node '{current.text}' during v→k trace. Breaking.")
+                    break
                 head = head.head
             saved_nodes.add(root)
-        
+        # logger.info(f"About to run TarjanLCA with {len(edge_between_nodes)} edges and {len(queries)} queries")
         lca_results = TarjanLCA(edge_between_nodes, queries).lca()
+        # logger.info("TarjanLCA completed successfully")
         lca_map: dict[tuple[Node, Node], Node] = {}
         for i, (u, v) in enumerate(queries):
             lca_node = lca_results[i]
             if lca_node:
                 lca_map[(u, v)] = lca_node
-        
+            
         node_paths: dict[tuple[Vertex, Vertex], list[tuple[str, int]]] = {}
         for (u, v), k in lca_map.items():
             vertex_u = node_vertex[u]
@@ -303,10 +310,13 @@ class SemanticCluster:
                     node_cnt += 1
                     path_items.append(current)
                 if current.head is None:
-                    # 无法继续追溯：打印精准调试信息
                     logger.warning(f"路径追溯失败 u→k: Node '{current.text}' (index={current.index}) has no head "
                             f"while tracing to LCA '{k.text}' (index={k.index}). "
                             f"Trace: {' → '.join(current_trace)}")
+                    break
+                # >>> 新增：防止自环导致死循环 <<<
+                if current.head == current:
+                    logger.warning(f"Detected self-loop at node '{current.text}' during u→k trace. Breaking.")
                     break
                 current = current.head
                 current_trace.append(current.text)
@@ -323,10 +333,13 @@ class SemanticCluster:
                         node_cnt += 1
                         rev_path_items.append(current)
                     if current.head is None:
-                        # 无法继续追溯：打印精准调试信息
                         logger.warning(f"路径追溯失败 v→k: Node '{current.text}' (index={current.index}) has no head "
                                 f"while tracing to LCA '{k.text}' (index={k.index}). "
                                 f"Trace: {' → '.join(current_trace)}")
+                        break
+                    # >>> 新增：防止自环导致死循环 <<<
+                    if current.head == current:
+                        logger.warning(f"Detected self-loop at node '{current.text}' during v→k trace. Breaking.")
                         break
                     current = current.head
                     current_trace.append(current.text)
@@ -347,93 +360,172 @@ class SemanticCluster:
                 paths = sorted(paths, key=lambda x: x[1])
                 self.vertices_paths[(vertex_u, vertex_v)] = paths[0]
         
-        return self.vertices_paths.get(key, ("", 0))
+        result = self.vertices_paths.get(key, ("", 0))
+        logger.info(f"get_paths_between_vertices result: count={result[1]}, sample='{result[0][:50]}...'")
+        return result
+    
     def text(self) -> str:
         if self.text_cache is not None:
+            logger.info(f"[text] Cache hit: {self.text_cache[:100]}...")
             return self.text_cache
-        
-        if not self.hyperedges:
-            return ""
-        
-        # Calc all the roots
-        root_ancestors = {e.current_node(e.root): e.current_node(e.root) for e in self.hyperedges}
-        # print(f"Nodes: {[e.current_node(e.root).text for e in self.hyperedges]}")
-        for e in self.hyperedges:
-            root = e.current_node(e.root)
-            node = root
-            ancestors = []
-            while node.head:
-                ancestors.append(node)
-                # print(f" {root.text}'s ancestor node: {node.head.text}")
-                if node.head in root_ancestors:
-                    root_ancestors[root] = root_ancestors[node.head]
-                    break
-                node = node.head
-        
-        root_to_nodes: dict[Node, set[Node]] = {}
-        for e in self.hyperedges:
-            root = e.current_node(e.root)
-            root_of_root = root_ancestors[root]
-            if root_of_root not in root_to_nodes:
-                root_to_nodes[root_of_root] = set()
-            for vertex in e.vertices:
-                node = e.current_node(vertex)
-                root_to_nodes[root_of_root].add(node)
-                
-        sub_cluster_roots: set[Node] = set()
-        for root, nodes in root_to_nodes.items():
-            sub_cluster_roots.add(root_ancestors[root])
-        
-        sub_clusters = sorted(list(sub_cluster_roots), key=lambda r: r.index)
-        
-        texts = []
-        
-        # print(f"Sub-clusters count: {len(sub_clusters)}")
-        
-        for root in sub_clusters:
-            nodes = list(root_to_nodes[root])
-            start = min(node.index for node in nodes)
-            end = max(node.index for node in nodes) + 1
-            sentence_by_range = str(self.doc[start:end])
-            sentence = str(root.sentence)
-            # print(f"Sentence: {sentence}")
-            # print(f"Sentence by range: {sentence_by_range}")
-            
-            def calc_prefix_suffix(sentence_by_range, sentence):
-                start = sentence.find(sentence_by_range)
-                if start != -1:
-                    prefix = sentence[:start].strip()
-                    suffix = sentence[start + len(sentence_by_range):].strip()
-                else:
-                    prefix = ""
-                    suffix = ""
-                return prefix, suffix
-        
-            prefix, suffix = calc_prefix_suffix(sentence_by_range, sentence)
-            
-            replacement = []
-            for node in nodes:
-                if node == root:
-                    continue
-                node_text = Vertex.resolved_text(node)
-                replacement.append((node.sentence, node_text))
-            
-            replacement.append((prefix, ""))
-            replacement.append((suffix, ""))
-            
-            for old, new in replacement:
-                sentence = sentence.replace(old, new)
-            
-            texts.append(sentence.strip())
-        
-        # for text in texts:
-        #     print(f" Sub-cluster text: {text}")
-        
-        text = " ".join(texts).strip()
-        
-        self.text_cache = text
-        return text
 
+        if not self.hyperedges:
+            logger.warning("[text] No hyperedges in cluster, returning empty string.")
+            return ""
+
+        logger.info(f"[text] Building text for cluster with {len(self.hyperedges)} hyperedges.")
+
+        # Step 1: Build root_ancestors mapping
+        try:
+            root_ancestors = {}
+            for e in self.hyperedges:
+                root_node = e.current_node(e.root)
+                if root_node is None:
+                    logger.error(f"[text] Hyperedge {e} has invalid root node (None). Skipping.")
+                    continue
+                root_ancestors[root_node] = root_node
+
+            logger.info(f"[text] Initial root_ancestors keys: {[n.text for n in root_ancestors.keys()]}")
+
+            # Resolve ancestor chains
+            for e in self.hyperedges:
+                root = e.current_node(e.root)
+                if root is None:
+                    continue
+                node = root
+                visited = set()  # 防止环
+                while node.head is not None:
+                    if node in visited:
+                        logger.warning(f"[text] Detected cycle in ancestor chain starting from {root.text}. Breaking.")
+                        break
+                    visited.add(node)
+                    logger.info(f"[text] Traversing: {root.text} -> ancestor {node.head.text}")
+                    if node.head in root_ancestors:
+                        root_ancestors[root] = root_ancestors[node.head]
+                        logger.info(f"[text] Mapped root {root.text} to ultimate root {root_ancestors[root].text}")
+                        break
+                    node = node.head
+                else:
+                    # No shared ancestor found; keep self as root
+                    logger.info(f"[text] Root {root.text} has no shared ancestor, remains independent.")
+
+            logger.info(f"[text] Final root_ancestors count: {len(root_ancestors)}")
+
+            # Step 2: Group nodes by ultimate root
+            root_to_nodes: dict[Node, set[Node]] = {}
+            for e in self.hyperedges:
+                root = e.current_node(e.root)
+                if root is None or root not in root_ancestors:
+                    logger.warning(f"[text] Skip hyperedge with invalid/unmapped root: {e}")
+                    continue
+                ultimate_root = root_ancestors[root]
+                if ultimate_root not in root_to_nodes:
+                    root_to_nodes[ultimate_root] = set()
+                for vertex in e.vertices:
+                    node = e.current_node(vertex)
+                    if node is not None:
+                        root_to_nodes[ultimate_root].add(node)
+                    else:
+                        logger.warning(f"[text] Vertex {vertex} in edge {e} maps to None node. Skipped.")
+
+            logger.info(f"[text] Grouped into {len(root_to_nodes)} sub-clusters.")
+
+            # Step 3: Collect unique ultimate roots for ordering
+            sub_cluster_roots = set(root_ancestors.get(r, r) for r in root_to_nodes.keys())
+            sub_clusters = sorted(list(sub_cluster_roots), key=lambda r: getattr(r, 'index', float('inf')))
+            logger.info(f"[text] Ordered sub-cluster roots: {[r.text for r in sub_clusters]}")
+
+            # Step 4: Generate text for each sub-cluster
+            texts = []
+            for root in sub_clusters:
+                if root not in root_to_nodes:
+                    logger.warning(f"[text] Root {root.text} not in root_to_nodes. Skipping.")
+                    continue
+
+                nodes = list(root_to_nodes[root])
+                if not nodes:
+                    logger.warning(f"[text] Empty node set for root {root.text}. Skipping.")
+                    continue
+
+                try:
+                    start = min(getattr(node, 'index', 0) for node in nodes)
+                    end = max(getattr(node, 'index', 0) for node in nodes) + 1
+                except Exception as ex:
+                    logger.error(f"[text] Failed to compute start/end indices for root {root.text}: {ex}")
+                    continue
+
+                sentence_by_range = str(self.doc[start:end]) if self.doc else ""
+                sentence_obj = getattr(root, 'sentence', None)
+                sentence = str(sentence_obj) if sentence_obj else ""
+
+                logger.info(f"[text] Root: {root.text}")
+                logger.info(f"[text]   Nodes: {[n.text for n in nodes]}")
+                logger.info(f"[text]   Doc range [{start}:{end}] -> '{sentence_by_range}'")
+                logger.info(f"[text]   Root sentence: '{sentence}'")
+
+                # Helper to extract prefix/suffix
+                def calc_prefix_suffix(range_text, full_sentence):
+                    start_idx = full_sentence.find(range_text)
+                    if start_idx != -1:
+                        prefix = full_sentence[:start_idx].strip()
+                        suffix = full_sentence[start_idx + len(range_text):].strip()
+                        return prefix, suffix
+                    else:
+                        logger.warning(f"[text] Range text not found in sentence:\n  range='{range_text}'\n  sent='{full_sentence}'")
+                        return "", ""
+
+                prefix, suffix = calc_prefix_suffix(sentence_by_range, sentence)
+
+                # Build replacement list
+                replacement = []
+                for node in nodes:
+                    if node == root:
+                        continue
+                    resolved_text = Vertex.resolved_text(node)
+                    original_text = getattr(node, 'text', '')
+                    replacement.append((original_text, resolved_text))
+                    logger.info(f"[text]   Replace '{original_text}' -> '{resolved_text}'")
+
+                # Add prefix/suffix removal
+                if prefix:
+                    replacement.append((prefix, ""))
+                    logger.info(f"[text]   Remove prefix: '{prefix}'")
+                if suffix:
+                    replacement.append((suffix, ""))
+                    logger.info(f"[text]   Remove suffix: '{suffix}'")
+
+                # Apply replacements
+                final_sentence = sentence
+                for old, new in replacement:
+                    if old in final_sentence:
+                        final_sentence = final_sentence.replace(old, new)
+                    else:
+                        logger.info(f"[text]   Replacement skipped: '{old}' not in sentence")
+
+                cleaned = final_sentence.strip()
+                if cleaned:
+                    texts.append(cleaned)
+                    logger.info(f"[text]   Final sub-text: '{cleaned}'")
+                else:
+                    logger.info(f"[text]   Sub-text is empty after cleaning. Skipped.")
+
+            # Step 5: Combine
+            text = " ".join(texts).strip()
+            logger.info(f"[text] Final cluster text (len={len(text)}): '{text[:200]}{'...' if len(text) > 200 else ''}'")
+
+            self.text_cache = text
+            return text
+
+        except Exception as e:
+            logger.exception(f"[text] Unexpected error in SemanticCluster.text(): {e}")
+            # Optionally return fallback
+            fallback = " ".join(
+                str(e.current_node(e.root).text) for e in self.hyperedges
+                if e.current_node(e.root) and hasattr(e.current_node(e.root), 'text')
+            ).strip()
+            self.text_cache = fallback
+            logger.warning(f"[text] Using fallback text: '{fallback}'")
+            return fallback
     def _build_signature(self) -> tuple:
         if not self.hyperedges:
             return ()
@@ -511,7 +603,7 @@ def compare_triples(triple1: tuple[str, list[str]], triple2: tuple[str, list[str
     
     # 1. 比较root的相似度
     root_sim = get_similarity(root1, root2)
-    logger.debug(f"三元组比较: {root1}({args1}) vs {root2}({args2}), root_sim={root_sim:.3f}")
+    logger.info(f"三元组比较: {root1}({args1}) vs {root2}({args2}), root_sim={root_sim:.3f}")
     
     # 2. 比较参数的相似度（使用NLI）
     if len(args1) == 0 and len(args2) == 0:
@@ -761,19 +853,20 @@ def get_semantic_cluster_pairs(query_hypergraph: Hypergraph, data_hypergraph: Hy
     embeddings_q = get_embedding_batch(texts_q)
     for i, sc in enumerate(single_cluster_q):
         sc.embedding = np.array(embeddings_q[i])
-
+    logger.info(f"embedding query for {texts_q}")
     single_cluster_d: list[SemanticCluster] = []
     edge_to_cluster_d: dict[Hyperedge, SemanticCluster] = {}
     for e in data_hypergraph.hyperedges:
         sc = SemanticCluster([e], data_hypergraph.doc)
         single_cluster_d.append(sc)
         edge_to_cluster_d[e] = sc
-    
+    logger.info(f"end hyperedge")
     texts_d = [sc.text() for sc in single_cluster_d]
+    logger.info(f"before embedding: {texts_d}")
     embeddings_d = get_embedding_batch(texts_d)
     for i, sc in enumerate(single_cluster_d):
         sc.embedding = np.array(embeddings_d[i])
-    logging.info("edge_to_cluster and embedding")    
+    logger.info(f"edge_to_cluster and embedding for {texts_d}")    
     # Step 2: 匹配所有的节点
     text_pair_to_node_pairs: dict[tuple[str, str], tuple[Vertex, Vertex]] = {}
     for node_q in sorted(query_hypergraph.vertices, key=_vertex_sort_key):
@@ -786,14 +879,14 @@ def get_semantic_cluster_pairs(query_hypergraph: Hypergraph, data_hypergraph: Hy
     for i, text_pair in enumerate(text_pairs):
         node_pair = text_pair_to_node_pairs[text_pair]
         node_pair_to_label[node_pair] = labels[i]
-    logging.info("nli node_pair_to_label")
+    logger.info(f"nli node_pair_to_label {labels}")
     matched_vertices: dict[Vertex, set[Vertex]] = {}
     for (node_q, node_d), label in node_pair_to_label.items():
         if label == "entailment" or (label == "neutral" and node_q.is_domain(node_d)):
             if node_q not in matched_vertices:
                 matched_vertices[node_q] = set()
             matched_vertices[node_q].add(node_d)
-        logging.info("nli matched_vertices")
+    logger.info("nli matched_vertices")
     # Step 3: 匹配所有的边对（结合embedding和三元组相似度）
     matched_edges: list[tuple[Hyperedge, Hyperedge, float]] = []
     edge_similarity_threshold = 0.6  # 边相似度阈值
@@ -801,13 +894,14 @@ def get_semantic_cluster_pairs(query_hypergraph: Hypergraph, data_hypergraph: Hy
     for q_sc in single_cluster_q:
         if q_sc.embedding is None:
             continue
+        logger.info(f"{q_sc.doc}")
         for d_sc in single_cluster_d:
             if d_sc.embedding is None:
                 continue
-            
+            logger.info(f"{d_sc.doc}")
             # 1. Embedding相似度
             emb_score = cosine_similarity(q_sc.embedding, d_sc.embedding)
-            
+            logger.info(f"{emb_score}")
             # 2. 三元组相似度
             q_triples = q_sc.to_triple()
             d_triples = d_sc.to_triple()
@@ -853,7 +947,7 @@ def get_semantic_cluster_pairs(query_hypergraph: Hypergraph, data_hypergraph: Hy
             edge_similarity_threshold
         )
         # with logging_redirect_tqdm():
-        #     logger.debug(f"闭包迭代完成: q_edges={len(q_edges_closure)}, d_edges={len(d_edges_closure)}")
+        #     logger.info(f"闭包迭代完成: q_edges={len(q_edges_closure)}, d_edges={len(d_edges_closure)}")
         # 检查是否已经处理过这个pair
         q_edge_ids = frozenset(id(e) for e in q_edges_closure)
         d_edge_ids = frozenset(id(e) for e in d_edges_closure)
@@ -1007,6 +1101,9 @@ def get_d_match(sc1: SemanticCluster, sc2: SemanticCluster, score_threshold: flo
     sc1_vertices = list(filter(lambda v: not (v.pos_equal(Pos.VERB) or v.pos_equal(Pos.AUX)), sc1.get_vertices()))
     sc2_vertices = list(filter(lambda v: not (v.pos_equal(Pos.VERB) or v.pos_equal(Pos.AUX)), sc2.get_vertices()))
     
+    logger.info(f"SC1 non-verb vertices: {[v.text() for v in sc1_vertices]}")
+    logger.info(f"SC2 non-verb vertices: {[v.text() for v in sc2_vertices]}")
+
     index_map: dict[Vertex, int] = {}
     for e in sc1.hyperedges:
         for v in e.vertices:
@@ -1033,6 +1130,8 @@ def get_d_match(sc1: SemanticCluster, sc2: SemanticCluster, score_threshold: flo
                 else:
                     sc1_edges.append((he.vertices[j], he.vertices[i]))
     
+    logger.info(f"SC1 direct edges: {[(u.text(), v.text()) for u, v in sc1_edges]}")
+
     sc1_pairs : list[tuple[Vertex, Vertex]] = []
     # all (u, v) in sc1_edges are in sc1_pairs, and if (u, k), (k, v) in sc1_edges, then (u, v) is also in sc1_pairs
     # calculate then recursively
@@ -1059,6 +1158,8 @@ def get_d_match(sc1: SemanticCluster, sc2: SemanticCluster, score_threshold: flo
     
     sc1_pairs = list(filter(lambda pairs: _is_pair_in_vertices(pairs[0], pairs[1]), sc1_pairs))
     
+    logger.info(f"SC1 path pairs after closure and filter: {[(u.text(), v.text()) for u, v in sc1_pairs]}")
+
     sc1_paths: dict[tuple[Vertex, Vertex], tuple[str, int]] = {}
     for u, v in sc1_pairs:
         s, cnt = sc1.get_paths_between_vertices(u, v)
@@ -1066,8 +1167,12 @@ def get_d_match(sc1: SemanticCluster, sc2: SemanticCluster, score_threshold: flo
             continue
         sc1_paths[(u, v)] = (s, cnt)
     
+    logger.info(f"SC1 valid paths count: {len(sc1_paths)}")
+
     likely_nodes = _get_matched_vertices(sc1_vertices, sc2_vertices)
     
+    logger.info("Likely matched nodes: { " + ", ".join([f"{u.text()}→[{', '.join(v.text() for v in vs)}]" for u, vs in likely_nodes.items() if vs]) + " }")
+
     sc2_pairs: list[tuple[Vertex, Vertex]] = []
     sc2_paths: dict[tuple[Vertex, Vertex], tuple[str, int]] = {}
     
@@ -1076,10 +1181,14 @@ def get_d_match(sc1: SemanticCluster, sc2: SemanticCluster, score_threshold: flo
         for v, v_prime in itertools.product(likely_nodes.get(u, set()), likely_nodes.get(u_prime, set())):
             if v == v_prime:
                 continue
-            
             s1, cnt1 = sc1_paths[(u, u_prime)]
+            logger.info(f"    Calling sc2.get_paths_between_vertices('{v.text()}', '{v_prime.text()}')")
             s2, cnt2 = sc2.get_paths_between_vertices(v, v_prime)
+            logger.info(f"    Forward path: count={cnt2}, sample='{s2[:50]}...'")
+
+            logger.info(f"    Calling sc2.get_paths_between_vertices('{v_prime.text()}', '{v.text()}')")
             s2_inv, cnt2_prime = sc2.get_paths_between_vertices(v_prime, v)
+            logger.info(f"    Backward path: count={cnt2_prime}, sample='{s2_inv[:50]}...'")
             
             # 处理单向路径缺失
             if cnt2 == 0 or s2 == "":
@@ -1103,6 +1212,10 @@ def get_d_match(sc1: SemanticCluster, sc2: SemanticCluster, score_threshold: flo
             else:
                 sc2_pairs.append((v_prime, v))
                 sc2_paths[(v_prime, v)] = (s2_inv, cnt2)
+
+    logger.info(f"SC2 inferred path pairs: {[(u.text(), v.text()) for u, v in sc2_pairs]}")
+    logger.info(f"SC2 paths count: {len(sc2_paths)}")
+
     # 让每一个节点和root做一次计算，通过此计算能得到一个分数。核心在于确定超边的子边方向
     match_scores: dict[tuple[Vertex, Vertex], float] = {}
     
@@ -1110,6 +1223,8 @@ def get_d_match(sc1: SemanticCluster, sc2: SemanticCluster, score_threshold: flo
         if _legal_vertices(u, v):
             matches.append((u, v))
     
+    logger.info(f"Initial legal matches count: {len(matches)}")
+
     in_paths_of_sc1: dict[Vertex, list[tuple[str, int]]] = {}
     out_paths_of_sc1: dict[Vertex, list[tuple[str, int]]] = {}
     for u, v in sc1_pairs:
@@ -1172,6 +1287,9 @@ def get_d_match(sc1: SemanticCluster, sc2: SemanticCluster, score_threshold: flo
                 root_path_of_sc2[v] = []
             root_path_of_sc2[v].append((text, 2))
 
+    logger.info(f"SC1 root paths count: {sum(len(ps) for ps in root_path_of_sc1.values())}")
+    logger.info(f"SC2 root paths count: {sum(len(ps) for ps in root_path_of_sc2.values())}")
+
     
     path_score_cache: dict[tuple[str, str], float] = {}
     path_pair_need_to_calc: set[tuple[str, str]] = set()
@@ -1189,6 +1307,7 @@ def get_d_match(sc1: SemanticCluster, sc2: SemanticCluster, score_threshold: flo
                 if (s1, s2) not in path_score_cache:
                     path_pair_need_to_calc.add((s1, s2))
 
+    logger.info(f"Path similarity pairs to compute: {len(path_pair_need_to_calc)}")
     
     path_list_1: list[str] = []
     path_list_2: list[str] = []
@@ -1200,6 +1319,8 @@ def get_d_match(sc1: SemanticCluster, sc2: SemanticCluster, score_threshold: flo
     for i, (s1, s2) in enumerate(path_pair_need_to_calc_list):
         path_score_cache[(s1, s2)] = similarities[i]
     
+    logger.info("Path similarity cache populated.")
+
     for u, v in matches:
         in_score = 0.0
         in_cnt = 0
@@ -1230,6 +1351,8 @@ def get_d_match(sc1: SemanticCluster, sc2: SemanticCluster, score_threshold: flo
         
         match_scores[(u, v)] = in_score + out_score + root_score
         
+        logger.info(f"Match score computed: '{u.text()}' ↔ '{v.text()}' = in({in_score:.3f}) + out({out_score:.3f}) + root({root_score:.3f}) = {match_scores[(u, v)]:.3f}")
+        
     # filter by score_threshold
     matches = list(filter(lambda pair: match_scores.get(pair, 0.0) >= score_threshold, matches))
     logger.info(f"D-Match过滤后: {len(matches)}个匹配 (阈值={score_threshold})")
@@ -1246,7 +1369,10 @@ def get_d_match(sc1: SemanticCluster, sc2: SemanticCluster, score_threshold: flo
         v_scores = sorted(v_scores, key=lambda x: x[1], reverse=True)
         best_v, best_score = v_scores[0]
         final_matches.append((u, best_v, best_score))
-    
+        if len(v_scores) > 1:
+            logger.info(f"Disambiguation for '{u.text()}': kept '{best_v.text()}' (score={best_score:.3f}), others: {[v.text() for v, s in v_scores[1:]]}")
+
+    logger.info(f"D-Match完成: 返回 {len(final_matches)} 个最终匹配")
     return final_matches
 
 

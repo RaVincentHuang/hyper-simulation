@@ -16,6 +16,9 @@ from hyper_simulation.question_answer.vmdit.metrics import (
 from hyper_simulation.query_instance import QueryInstance
 
 from hyper_simulation.llm.prompt.hotpot_qa import HOTPOT_QA_BASE
+from hyper_simulation.llm.prompt.musique import MUSIQUE_QA_BASE
+from hyper_simulation.llm.prompt.multihop import MULTIHOP_QA_BASE
+from hyper_simulation.llm.prompt.vmdit import PROMPT_DICT
 
 # home/vincent/.dataset/HotpotQA/hotpot_*.jsonl
 def load_hotpotqa_data(file_path: str) -> List[Dict[str, Any]]:
@@ -87,32 +90,165 @@ def load_hotpotqa_data(file_path: str) -> List[Dict[str, Any]]:
     return data
 
 
+def load_musique_data(file_path: str) -> List[Dict[str, Any]]:
+    """
+    加载MuSiQue数据集（jsonl）
+
+    支持的schema:
+    - id: 问题ID
+    - question: 问题文本
+    - answer: 正确答案
+    - answer_alias: 答案别名
+    - answerable: 是否可回答
+    - paragraphs: [{idx, title, paragraph_text, is_supporting}]
+    - question_decomposition: 多跳子问题
+    """
+    data: List[Dict[str, Any]] = []
+    path = Path(file_path)
+
+    # collect all *.jsonl in `file_path` if it's a directory
+    paths = []
+    if path.is_dir():
+        paths = list(path.glob("*.jsonl"))
+    else:
+        paths = [path]
+
+    for path in paths:
+        if path.suffix != ".jsonl":
+            raise ValueError("Unsupported file format. Please use .jsonl")
+
+        with jsonlines.open(path, "r") as reader:
+            for item in reader:
+                paragraphs = item.get("paragraphs", []) or []
+
+                context = []
+                supporting_titles = []
+                supporting_sent_ids = []
+                supporting_flags = []
+
+                for p in paragraphs:
+                    title = (p.get("title") or "").strip()
+                    paragraph_text = (p.get("paragraph_text") or "").strip()
+
+                    if title or paragraph_text:
+                        context.append((title, [paragraph_text] if paragraph_text else []))
+                        is_supporting = bool(p.get("is_supporting", False))
+                        supporting_flags.append(is_supporting)
+
+                        if is_supporting and title:
+                            supporting_titles.append(title)
+                            supporting_sent_ids.append(0)
+
+                formatted_item = {
+                    "_id": item.get("id", ""),
+                    "question": (item.get("question") or "").strip(),
+                    "answer": (item.get("answer") or "").strip(),
+                    "answer_alias": item.get("answer_alias", []) or [],
+                    "answerable": item.get("answerable", True),
+                    "question_decomposition": item.get("question_decomposition", []) or [],
+                    "context": context,
+                    "supporting_flags": supporting_flags,
+                }
+                data.append(formatted_item)
+
+    return data
+
+
+def load_multihop_data(file_path: str) -> List[Dict[str, Any]]:
+    """
+    加载多跳推理数据集（jsonl）
+
+    支持的schema:
+    - query: 问题文本
+    - answer: 正确答案
+    - question_type: 问题类型
+    - evidence_list: [{title, text, published_at, source}]
+    - metadata: 其他元数据
+    """
+    data: List[Dict[str, Any]] = []
+    path = Path(file_path)
+
+    # collect all *.jsonl in `file_path` if it's a directory
+    paths = []
+    if path.is_dir():
+        paths = list(path.glob("*.jsonl"))
+    else:
+        paths = [path]
+
+    for path in paths:
+        if path.suffix != ".jsonl":
+            raise ValueError("Unsupported file format. Please use .jsonl")
+
+        with jsonlines.open(path, "r") as reader:
+            for item in reader:
+                evidence_list = item.get("evidence_list", []) or []
+
+                context = []
+                supporting_flags = []
+                for evidence in evidence_list:
+                    title = (evidence.get("title") or "").strip()
+                    text = (evidence.get("text") or "").strip()
+                    if title or text:
+                        context.append((title, [text] if text else []))
+                        supporting_flags.append(True)
+
+                formatted_item = {
+                    "_id": item.get("id", ""),
+                    "question": (item.get("query") or "").strip(),
+                    "answer": (item.get("answer") or "").strip(),
+                    "question_type": item.get("question_type", ""),
+                    "metadata": item.get("metadata", []) or [],
+                    "context": context,
+                    "supporting_flags": supporting_flags,
+                }
+                data.append(formatted_item)
+
+    return data
+
 def load_data(file_path: str, task: str = "hotpotqa") -> List[Dict[str, Any]]:
     """
     通用数据加载接口，支持不同任务的数据集
     """
     if task == "hotpotqa":
         return load_hotpotqa_data(file_path)
+    elif task == "musique":
+        return load_musique_data(file_path)
+    elif task == "multihop":
+        return load_multihop_data(file_path)
     else:
         raise ValueError(f"Unsupported task: {task}")
 
 
 
-def build_prompt(question: str, context_text: str) -> str:
+def build_prompt(question: str, context_text: str, task: str = "hotpotqa") -> str:
     """
-    构建用于LLM的prompt
+    构建用于LLM的prompt，根据不同任务选择相应的模板
     
     Args:
         question: 问题文本
-        context_texts: 格式化后的context文本
+        context_text: 格式化后的context文本
+        task: 任务类型 (hotpotqa, musique)
     
     Returns:
         完整的prompt
     """
-    prompt = HOTPOT_QA_BASE.format(
-        context_text=context_text,
-        question=question
-    )
+    if task == "hotpotqa":
+        prompt = HOTPOT_QA_BASE.format(
+            context_text=context_text,
+            question=question
+        )
+    elif task == "musique":
+        prompt = MUSIQUE_QA_BASE.format(
+            context_text=context_text,
+            question=question
+        )
+    elif task == "multihop":
+        prompt = MULTIHOP_QA_BASE.format(
+            context_text=context_text,
+            question=question
+        )
+    else:
+        raise ValueError(f"Unsupported task: {task}")
 
     return prompt
 
@@ -205,7 +341,7 @@ def run_rag_evaluation(
     print(f"Loaded {len(data)} samples")
     print(f"Initializing LLM: {model_name}")
     
-    if build:
+    if build or method != "hyper_simulation":
         from langchain_ollama import ChatOllama
         from hyper_simulation.llm.chat_completion import get_generate
         # 初始化LLM
@@ -267,6 +403,77 @@ def run_rag_evaluation(
                     ground_truth=ground_truths
                 )
                 query_instances.append(query_instance)
+        elif task == "musique":
+            query_instances = []
+            for item in batch:
+                ground_truths = []
+                supporting_flags = item.get("supporting_flags", []) or []
+                for idx, (title, sentences) in enumerate(item["context"]):
+                    is_supporting = supporting_flags[idx] if idx < len(supporting_flags) else False
+                    if is_supporting:
+                        has_contradiction = True
+                        evidence = "\n".join(sentences)
+                        ground_truths.append((has_contradiction, evidence))
+                    else:
+                        ground_truths.append((False, ""))
+
+                answer = item.get("answer", "")
+                aliases = item.get("answer_alias", []) or []
+                answers = [answer] + [a for a in aliases if a != answer]
+
+                raw_decomposition = item.get("question_decomposition", []) or []
+                if isinstance(raw_decomposition, list) and raw_decomposition:
+                    if all(isinstance(d, dict) and "id" in d for d in raw_decomposition):
+                        sorted_decomposition = sorted(raw_decomposition, key=lambda d: d.get("id"))
+                    else:
+                        sorted_decomposition = raw_decomposition
+                    query_decomposition = [
+                        (d.get("question") or "").strip() for d in sorted_decomposition
+                        if isinstance(d, dict)
+                    ]
+                else:
+                    query_decomposition = None
+
+                query_instance = QueryInstance(
+                    query=item["question"],
+                    data=[
+                        f"{title}\n" + "\n".join(sentences)
+                        for title, sentences in item["context"]
+                    ],
+                    fixed_data=[],
+                    answers=answers,
+                    ground_truth=ground_truths,
+                    query_decomposition=query_decomposition
+                )
+                query_instances.append(query_instance)
+        elif task == "multihop":
+            query_instances = []
+            for item in batch:
+                ground_truths = []
+                supporting_flags = item.get("supporting_flags", []) or []
+                for idx, (title, sentences) in enumerate(item["context"]):
+                    is_supporting = supporting_flags[idx] if idx < len(supporting_flags) else False
+                    if is_supporting:
+                        has_contradiction = True
+                        evidence = "\n".join(sentences)
+                        ground_truths.append((has_contradiction, evidence))
+                    else:
+                        ground_truths.append((False, ""))
+
+                answer = item.get("answer", "")
+                answers = [answer] if answer else []
+
+                query_instance = QueryInstance(
+                    query=item["question"],
+                    data=[
+                        f"{title}\n" + "\n".join(sentences)
+                        for title, sentences in item["context"]
+                    ],
+                    fixed_data=[],
+                    answers=answers,
+                    ground_truth=ground_truths
+                )
+                query_instances.append(query_instance)
         else:
             raise ValueError(f"Unsupported task: {task}")
         
@@ -297,8 +504,8 @@ def run_rag_evaluation(
         for item in fixed_query_instances:
             # 格式化context
             context_text = "\n\n".join(item.fixed_data if item.fixed_data else item.data)
-            # 构建prompt
-            prompt = build_prompt(item.query, context_text)
+            # 根据任务类型构建prompt
+            prompt = build_prompt(item.query, context_text, task=task)
             prompts.append(prompt)
         
         # 批量调用LLM

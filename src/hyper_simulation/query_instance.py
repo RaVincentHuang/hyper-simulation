@@ -9,3 +9,4 @@ class QueryInstance:
     answers: list[str]
     ground_truth: list[tuple[bool, Any]]  # list of (has_contradiction, evidence)
     fixed_data: Union[List[str], None] = None
+    query_decomposition: Union[List[str], None] = None

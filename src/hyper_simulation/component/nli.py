@@ -1,54 +1,5 @@
-# import os
-# import sys
-# import sysconfig
-
-# # If a local dependency folder (e.g. `.deps`) exists, restrict third-party
-# # imports to that folder only. This prevents this script from picking up
-# # packages from the active conda environment's site-packages while still
-# # allowing imports from the Python standard library and the script folder.
-# _HERE = os.path.dirname(__file__)
-# _DEPS_DIR = os.path.join(_HERE, ".deps")
-# if os.path.isdir(_DEPS_DIR):
-#     # Keep a copy of the original sys.path to detect runtime-specific
-#     # directories (like lib-dynload) which are required for C-extension
-#     # standard-library modules (e.g. _struct). We'll exclude third-party
-#     # site-packages but preserve stdlib and lib-dynload paths.
-#     _orig_sys_path = sys.path.copy()
-
-#     allowed = [_DEPS_DIR, _HERE, ""]
-#     try:
-#         stdlib = sysconfig.get_path("stdlib")
-#         platstdlib = sysconfig.get_path("platstdlib")
-#     except Exception:
-#         stdlib = None
-#         platstdlib = None
-#     for p in (stdlib, platstdlib):
-#         if p and p not in allowed:
-#             allowed.append(p)
-
-#     # Include any original sys.path entries that look like interpreter
-#     # internal library locations (e.g. lib-dynload) but skip site-packages so
-#     # that third-party packages from the conda env are not visible.
-#     for p in _orig_sys_path:
-#         if not p:
-#             continue
-#         lp = p.lower()
-#         if "site-packages" in lp:
-#             # intentionally skip third-party site-packages
-#             continue
-#         if "lib-dynload" in lp or lp.startswith(sys.exec_prefix) or lp.startswith(sys.base_prefix):
-#             if os.path.isdir(p) and p not in allowed:
-#                 allowed.append(p)
-
-#     # Replace sys.path in-place so subsequent imports only search allowed paths
-#     sys.path[:] = allowed
-    
-
-
 import os
 
-# os.environ["CUDA_VISIBLE_DEVICES"] = ""
-# os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 
 _model_cache = {}
 
@@ -57,7 +8,7 @@ def get_nli_labels_batch(pairs: list[tuple[str, str]]) -> list[str]:
         from sentence_transformers import CrossEncoder
         local_model_path = "/home/vincent/.cache/huggingface/hub/models--cross-encoder--nli-deberta-v3-base/snapshots/6c749ce3425cd33b46d187e45b92bbf96ee12ec7"
         # _model_cache['nli-deberta-v3-base'] = CrossEncoder('cross-encoder/nli-deberta-v3-base', device="cpu")
-        _model_cache['nli-deberta-v3-base'] = CrossEncoder(local_model_path, device="cpu")
+        _model_cache['nli-deberta-v3-base'] = CrossEncoder(local_model_path)
     model = _model_cache['nli-deberta-v3-base']
     scores = model.predict(pairs)
     label_mapping = ['contradiction', 'entailment', 'neutral']
@@ -73,7 +24,7 @@ def get_nli_entailment_score_batch(pairs: list[tuple[str, str]]) -> list[float]:
         from sentence_transformers import CrossEncoder
         local_model_path = "/home/vincent/.cache/huggingface/hub/models--cross-encoder--nli-deberta-v3-base/snapshots/6c749ce3425cd33b46d187e45b92bbf96ee12ec7"
         # _model_cache['nli-deberta-v3-base'] = CrossEncoder('cross-encoder/nli-deberta-v3-base', device="cpu")
-        _model_cache['nli-deberta-v3-base'] = CrossEncoder(local_model_path, device="cpu")
+        _model_cache['nli-deberta-v3-base'] = CrossEncoder(local_model_path)
     model = _model_cache['nli-deberta-v3-base']
     scores = model.predict(pairs)
     entailment_scores = [score[1] for score in scores]
@@ -84,7 +35,7 @@ def get_nli_contradiction_score_batch(pairs: list[tuple[str, str]]) -> list[floa
         from sentence_transformers import CrossEncoder
         local_model_path = "/home/vincent/.cache/huggingface/hub/models--cross-encoder--nli-deberta-v3-base/snapshots/6c749ce3425cd33b46d187e45b92bbf96ee12ec7"
         # _model_cache['nli-deberta-v3-base'] = CrossEncoder('cross-encoder/nli-deberta-v3-base', device="cpu")
-        _model_cache['nli-deberta-v3-base'] = CrossEncoder(local_model_path, device="cpu")
+        _model_cache['nli-deberta-v3-base'] = CrossEncoder(local_model_path)
     model = _model_cache['nli-deberta-v3-base']
     scores = model.predict(pairs)
     contradiction_scores = [score[0] for score in scores]

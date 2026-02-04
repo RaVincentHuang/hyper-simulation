@@ -2,7 +2,7 @@ import os
 import random
 
 from sentence_transformers import SentenceTransformer
-from modelscope import AutoModel, AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoModel, AutoTokenizer, AutoModelForCausalLM
 import torch
 from torch import Tensor
 import torch.nn.functional as F
@@ -22,7 +22,7 @@ def last_token_pool(last_hidden_states: Tensor, attention_mask: Tensor) -> Tenso
 # model = AutoModel.from_pretrained('Qwen/Qwen3-Embedding-4B')
 
 _model_cache = {}
-_embedding_cache: dict[str, np.ndarray] = {}
+# _embedding_cache: dict[str, np.ndarray] = {}
 
 max_length = 8192
 
@@ -38,54 +38,64 @@ try:
 except Exception:
     pass
 
-def get_embedding_batch_old(texts: list[str]) -> list[np.ndarray]:
-    if 'Qwen3-Embedding-4B' not in _model_cache:
-        _model_cache['Qwen3-Embedding-4B'] = (AutoTokenizer.from_pretrained('Qwen/Qwen3-Embedding-4B', padding_side='left'), AutoModel.from_pretrained('Qwen/Qwen3-Embedding-4B'))
-
-    tokenizer, model = _model_cache['Qwen3-Embedding-4B']
-    
-    batch_dict = tokenizer(
-        texts,
-        padding=True,
-        truncation=True,
-        max_length=max_length,
-        return_tensors="pt",
-    )
-    
-    batch_dict.to(model.device)
-    outputs = model(**batch_dict)
-    embeddings = last_token_pool(outputs.last_hidden_state, batch_dict['attention_mask'])
-    embeddings = F.normalize(embeddings, p=2, dim=1)
-    embeddings = embeddings.cpu().detach().numpy()
-    embedding_list = embeddings.tolist()
-    return embedding_list
-
 def _get_sentence_transformer() -> SentenceTransformer:
     if "Qwen/Qwen3-Embedding-0.6B" not in _model_cache:
         local_model_path = "/home/vincent/.cache/huggingface/hub/models--Qwen--Qwen3-Embedding-0.6B/snapshots/c54f2e6e80b2d7b7de06f51cec4959f6b3e03418"
         # model = SentenceTransformer("Qwen/Qwen3-Embedding-0.6B", device="cpu")
-        model = SentenceTransformer(local_model_path, device="cpu")
+        model = SentenceTransformer(local_model_path)
         model.eval()
         _model_cache["Qwen/Qwen3-Embedding-0.6B"] = model
     return _model_cache["Qwen/Qwen3-Embedding-0.6B"]
 
 
-def get_embedding_batch(texts: list[str], N: int=8) -> list[np.ndarray]:
+def get_embedding_batch(texts: list[str], N: int=8, cache: None | dict[str, np.ndarray]=None) -> list[np.ndarray]:
     model = _get_sentence_transformer()
-    uncached: list[str] = [t for t in texts if t not in _embedding_cache]
-    for i in range(0, len(uncached), N):
-        batch_texts = uncached[i:i+N]
-        if not batch_texts:
-            continue
+
+    if not cache:
+        ans: list[np.ndarray]  = []
+        for i in range(0, len(texts), N):
+            batch_texts = texts[i:i+N]
+            if not batch_texts:
+                continue
+            batch_embeddings = model.encode(
+                batch_texts,
+                convert_to_numpy=True,
+                normalize_embeddings=True,
+                show_progress_bar=False,
+            )
+            
+            for emb in batch_embeddings:
+                ans.append(emb)
+        
+        return ans
+    
+    ans_map = {}
+    missing_texts = []
+    
+    # 1. 查表：找出哪些需要计算
+    for text in texts:
+        if text in cache:
+            ans_map[text] = cache[text]
+        elif text not in ans_map:  # 避免当前输入列表中有重复项
+            missing_texts.append(text)
+
+    # 2. 批处理：仅计算缺失部分
+    for i in range(0, len(missing_texts), N):
+        batch_texts = missing_texts[i:i+N]
         batch_embeddings = model.encode(
             batch_texts,
             convert_to_numpy=True,
             normalize_embeddings=True,
             show_progress_bar=False,
         )
+        # 更新中间 Map 和 外部 Cache
         for text, emb in zip(batch_texts, batch_embeddings):
-            _embedding_cache[text] = emb
-    return [_embedding_cache[text] for text in texts]
+            ans_map[text] = emb
+            cache[text] = emb  # 实时更新缓存供下次使用
+
+    # 3. 重组：按照原始文本顺序返回结果
+    return [ans_map[text] for text in texts]
+
 
 def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
     a_norm = a / np.linalg.norm(a)
