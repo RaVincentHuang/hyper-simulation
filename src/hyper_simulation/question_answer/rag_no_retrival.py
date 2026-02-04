@@ -646,6 +646,7 @@ def main():
         default='True',
         help='Whether hypergraphs already exist (default: "True"). Set to "False" to rebuild.'
     )
+    
 
     args = parser.parse_args()
     build_flag = (args.build.strip().lower() == 'true')
