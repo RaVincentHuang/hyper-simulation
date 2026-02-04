@@ -186,17 +186,16 @@ def build_delta_and_dmatch(
         d_delta_matches[(sc_id, sc_id)] = matches
         cluster_count += 1
 
-    # 记录采纳的簇（含文本）
-    sc_logger.info(
-        f"  → 采纳 #{cluster_count}: "
-        f"score={sim_score:.3f}, "
-        f"Q_rep=Q{q_rep.id}('{q_rep.text()}'), "
-        f"D_rep=D{d_rep.id}('{d_rep.text()}'), "
-        f"Q_nodes={len(q_vs)}, D_nodes={len(d_vs)}, "
-        f"matches={len(matches)}"
-    )
+        # 记录采纳的簇（含文本）
+        sc_logger.info(
+            f"  → 采纳 #{cluster_count}: "
+            f"score={sim_score:.3f}, "
+            f"Q_rep=Q{q_rep.id}('{q_rep.text()}'), "
+            f"D_rep=D{d_rep.id}('{d_rep.text()}'), "
+            f"Q_nodes={len(q_vs)}, D_nodes={len(d_vs)}, "
+            f"matches={len(matches)}"
+        )
 
-    delta_end = time.time()
     sc_logger.info(f"语义簇构建完成: 原始 {len(raw_pairs)} → 有效 {cluster_count} 个簇对")   
     
     # Step 2: 为allowed_pairs中每个节点对创建单节点簇

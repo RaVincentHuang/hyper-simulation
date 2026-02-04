@@ -5,8 +5,6 @@ from tqdm import tqdm
 from typing import List, Dict, Any
 from pathlib import Path
 import logging
-from hyper_simulation.utils.log import getLogger
-logger = getLogger(__name__)
 from hyper_simulation.question_answer.vmdit.metrics import (
     exact_match_score, 
     metric_max_over_ground_truths,
@@ -14,10 +12,16 @@ from hyper_simulation.question_answer.vmdit.metrics import (
     match
 )
 from hyper_simulation.query_instance import QueryInstance
-
+from hyper_simulation.utils.log import current_task, current_query_id
+from hyper_simulation.utils.log import getLogger
 from hyper_simulation.llm.prompt.hotpot_qa import HOTPOT_QA_BASE
 from hyper_simulation.llm.prompt.musique import MUSIQUE_QA_BASE
 from hyper_simulation.llm.prompt.multihop import MULTIHOP_QA_BASE
+from hyper_simulation.llm.prompt.legalbench_qa import LEGALBENCH_QA_BASE
+from hyper_simulation.llm.prompt.legalbench_entailment import LEGALBENCH_ENTAILMENT_BASE
+from hyper_simulation.llm.prompt.legalbench_insurance import LEGALBENCH_INSURANCE_BASE
+from hyper_simulation.llm.prompt.legalbench_corporate_lobbying import LEGALBENCH_CORPORATE_LOBBYING_BASE
+from hyper_simulation.llm.prompt.legalbench_scalr import LEGALBENCH_SCALR_BASE
 from hyper_simulation.llm.prompt.vmdit import PROMPT_DICT
 
 # home/vincent/.dataset/HotpotQA/hotpot_*.jsonl
@@ -205,6 +209,194 @@ def load_multihop_data(file_path: str) -> List[Dict[str, Any]]:
 
     return data
 
+
+def load_legalbench_qa_data(file_path: str) -> List[Dict[str, Any]]:
+    """
+    加载 LegalBench QA 类数据（contract_qa, consumer_contracts_qa, privacy_policy_qa, rule_qa）
+
+    支持的schema:
+    - text: 上下文文本（合同、隐私政策等）
+    - question: 问题
+    - answer: 答案
+    """
+    data: List[Dict[str, Any]] = []
+    path = Path(file_path)
+
+    paths = []
+    if path.is_dir():
+        paths = list(path.glob("*.jsonl"))
+    else:
+        paths = [path]
+
+    for path in paths:
+        if path.suffix != ".jsonl":
+            continue
+
+        with jsonlines.open(path, "r") as reader:
+            for item in reader:
+                formatted_item = {
+                    "_id": item.get("id", ""),
+                    "question": (item.get("question") or "").strip(),
+                    "answer": (item.get("answer") or "").strip(),
+                    "context": [(path.stem, [item.get("text", "")])],
+                    "context_type": "legal_document",
+                }
+                data.append(formatted_item)
+
+    return data
+
+
+def load_legalbench_entailment_data(file_path: str) -> List[Dict[str, Any]]:
+    """
+    加载 LegalBench Entailment 类数据（privacy_policy_entailment, sara_entailment）
+
+    支持的schema:
+    - text: 上下文文本（法律条文、隐私政策等）
+    - hypothesis: 要判断的陈述句
+    - answer: Entails / Contradicts / Neutral
+    """
+    data: List[Dict[str, Any]] = []
+    path = Path(file_path)
+
+    paths = []
+    if path.is_dir():
+        paths = list(path.glob("*.jsonl"))
+    else:
+        paths = [path]
+
+    for path in paths:
+        if path.suffix != ".jsonl":
+            continue
+
+        with jsonlines.open(path, "r") as reader:
+            for item in reader:
+                formatted_item = {
+                    "_id": item.get("id", ""),
+                    "question": (item.get("hypothesis") or "").strip(),
+                    "answer": (item.get("answer") or "").strip(),
+                    "context": [(path.stem, [item.get("text", "")])],
+                    "context_type": "legal_entailment",
+                }
+                data.append(formatted_item)
+
+    return data
+
+
+def load_legalbench_insurance_data(file_path: str) -> List[Dict[str, Any]]:
+    """
+    加载 LegalBench 保险相关数据（insurance_policy_interpretation）
+
+    支持的schema:
+    - text: 保险条款原文
+    - question: 场景问题
+    - answer: 是否赔付
+    """
+    data: List[Dict[str, Any]] = []
+    path = Path(file_path)
+
+    if path.is_dir():
+        paths = list(path.glob("*.jsonl"))
+    else:
+        paths = [path]
+
+    for path in paths:
+        if path.suffix != ".jsonl":
+            continue
+
+        with jsonlines.open(path, "r") as reader:
+            for item in reader:
+                formatted_item = {
+                    "_id": item.get("id", ""),
+                    "question": (item.get("question") or "").strip(),
+                    "answer": (item.get("answer") or "").strip(),
+                    "context": [("insurance_policy", [item.get("text", "")])],
+                    "context_type": "legal_insurance",
+                }
+                data.append(formatted_item)
+
+    return data
+
+
+def load_legalbench_corporate_lobbying_data(file_path: str) -> List[Dict[str, Any]]:
+    """
+    加载 LegalBench 企业游说数据（corporate_lobbying）
+
+    支持的schema:
+    - text: 法案标题或摘要
+    - company_name: 公司名称
+    - answer: Yes / No（是否相关）
+    """
+    data: List[Dict[str, Any]] = []
+    path = Path(file_path)
+
+    if path.is_dir():
+        paths = list(path.glob("*.jsonl"))
+    else:
+        paths = [path]
+
+    for path in paths:
+        if path.suffix != ".jsonl":
+            continue
+
+        with jsonlines.open(path, "r") as reader:
+            for item in reader:
+                company_name = item.get("company_name", "Unknown Company")
+                question = f"Is this bill relevant to {company_name}?"
+                formatted_item = {
+                    "_id": item.get("id", ""),
+                    "question": question,
+                    "answer": (item.get("answer") or "").strip(),
+                    "company_name": company_name,
+                    "context": [("bill", [item.get("text", "")])],
+                    "context_type": "legal_corporate_lobbying",
+                }
+                data.append(formatted_item)
+
+    return data
+
+
+def load_legalbench_scalr_data(file_path: str) -> List[Dict[str, Any]]:
+    """
+    加载 LegalBench 案例法推理数据（scalr）
+
+    支持的schema:
+    - text: 案件事实和法律原则
+    - question: 问题
+    - options: 选项列表
+    - answer: 正确答案
+    """
+    data: List[Dict[str, Any]] = []
+    path = Path(file_path)
+
+    if path.is_dir():
+        paths = list(path.glob("*.jsonl"))
+    else:
+        paths = [path]
+
+    for path in paths:
+        if path.suffix != ".jsonl":
+            continue
+
+        with jsonlines.open(path, "r") as reader:
+            for item in reader:
+                options = item.get("options", []) or []
+                options_str = "\n".join([f"({chr(65+i)}) {opt}" for i, opt in enumerate(options)])
+                question = (item.get("question") or "").strip()
+                if options_str:
+                    question = f"{question}\n\nOptions:\n{options_str}"
+
+                formatted_item = {
+                    "_id": item.get("id", ""),
+                    "question": question,
+                    "answer": (item.get("answer") or "").strip(),
+                    "context": [("supreme_court_case", [item.get("text", "")])],
+                    "context_type": "legal_case",
+                }
+                data.append(formatted_item)
+
+    return data
+
+
 def load_data(file_path: str, task: str = "hotpotqa") -> List[Dict[str, Any]]:
     """
     通用数据加载接口，支持不同任务的数据集
@@ -215,6 +407,16 @@ def load_data(file_path: str, task: str = "hotpotqa") -> List[Dict[str, Any]]:
         return load_musique_data(file_path)
     elif task == "multihop":
         return load_multihop_data(file_path)
+    elif task.startswith("legalbench/qa"):
+        return load_legalbench_qa_data(file_path)
+    elif task.startswith("legalbench/entailment"):
+        return load_legalbench_entailment_data(file_path)
+    elif task.startswith("legalbench/insurance"):
+        return load_legalbench_insurance_data(file_path)
+    elif task.startswith("legalbench/corporate_lobbying"):
+        return load_legalbench_corporate_lobbying_data(file_path)
+    elif task.startswith("legalbench/scalr"):
+        return load_legalbench_scalr_data(file_path)
     else:
         raise ValueError(f"Unsupported task: {task}")
 
@@ -227,7 +429,7 @@ def build_prompt(question: str, context_text: str, task: str = "hotpotqa") -> st
     Args:
         question: 问题文本
         context_text: 格式化后的context文本
-        task: 任务类型 (hotpotqa, musique)
+        task: 任务类型 (hotpotqa, musique, multihop, legalbench/*)
     
     Returns:
         完整的prompt
@@ -244,6 +446,31 @@ def build_prompt(question: str, context_text: str, task: str = "hotpotqa") -> st
         )
     elif task == "multihop":
         prompt = MULTIHOP_QA_BASE.format(
+            context_text=context_text,
+            question=question
+        )
+    elif task.startswith("legalbench/qa"):
+        prompt = LEGALBENCH_QA_BASE.format(
+            context_text=context_text,
+            question=question
+        )
+    elif task.startswith("legalbench/entailment"):
+        prompt = LEGALBENCH_ENTAILMENT_BASE.format(
+            context_text=context_text,
+            question=question
+        )
+    elif task.startswith("legalbench/insurance"):
+        prompt = LEGALBENCH_INSURANCE_BASE.format(
+            context_text=context_text,
+            question=question
+        )
+    elif task.startswith("legalbench/corporate_lobbying"):
+        prompt = LEGALBENCH_CORPORATE_LOBBYING_BASE.format(
+            context_text=context_text,
+            question=question
+        )
+    elif task.startswith("legalbench/scalr"):
+        prompt = LEGALBENCH_SCALR_BASE.format(
             context_text=context_text,
             question=question
         )
@@ -355,7 +582,8 @@ def run_rag_evaluation(
     }
     
     print(f"Starting evaluation with batch_size={batch_size}...")
-    
+    current_task.set(task)
+    logger = getLogger(__name__, "INFO")
     # 按批次处理
     for batch_start in tqdm(range(0, len(data), batch_size), desc="Processing batches"):
         assert batch_start + batch_size <= len(data) 
@@ -474,6 +702,36 @@ def run_rag_evaluation(
                     ground_truth=ground_truths
                 )
                 query_instances.append(query_instance)
+        elif task.startswith("legalbench/"):
+            query_instances = []
+            for item in batch:
+                ground_truths = []
+                context_type = item.get("context_type", "legal_document")
+                supporting_flags = item.get("supporting_flags", []) or []
+                
+                for idx, (title, sentences) in enumerate(item["context"]):
+                    is_supporting = supporting_flags[idx] if idx < len(supporting_flags) else True
+                    if is_supporting:
+                        has_contradiction = True
+                        evidence = "\n".join(sentences)
+                        ground_truths.append((has_contradiction, evidence))
+                    else:
+                        ground_truths.append((False, ""))
+
+                answer = item.get("answer", "")
+                answers = [answer] if answer else []
+
+                query_instance = QueryInstance(
+                    query=item["question"],
+                    data=[
+                        f"{title}\n" + "\n".join(sentences)
+                        for title, sentences in item["context"]
+                    ],
+                    fixed_data=[],
+                    answers=answers,
+                    ground_truth=ground_truths
+                )
+                query_instances.append(query_instance)
         else:
             raise ValueError(f"Unsupported task: {task}")
         
@@ -498,7 +756,6 @@ def run_rag_evaluation(
                 fixed_query_instances = [query_fixup(qi, task) for qi in query_instances]
         else:
             raise ValueError(f"Unsupported method: {method}")
-        
         # 准备prompts
         prompts = []
         for item in fixed_query_instances:
