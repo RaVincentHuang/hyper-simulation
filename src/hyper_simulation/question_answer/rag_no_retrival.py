@@ -18,6 +18,7 @@ from hyper_simulation.llm.prompt.hotpot_qa import HOTPOT_QA_BASE
 from hyper_simulation.llm.prompt.musique import MUSIQUE_QA_BASE
 from hyper_simulation.llm.prompt.multihop import MULTIHOP_QA_BASE
 from hyper_simulation.llm.prompt.legalbench_qa import LEGALBENCH_QA_BASE
+from hyper_simulation.llm.prompt.legalbench_qa_detailed import QA_CONTRACT_BASE, QA_CONSUMER_BASE, QA_PRIVACY_BASE, QA_RULE_BASE
 from hyper_simulation.llm.prompt.legalbench_entailment import LEGALBENCH_ENTAILMENT_BASE
 from hyper_simulation.llm.prompt.legalbench_insurance import LEGALBENCH_INSURANCE_BASE
 from hyper_simulation.llm.prompt.legalbench_corporate_lobbying import LEGALBENCH_CORPORATE_LOBBYING_BASE
@@ -207,6 +208,154 @@ def load_multihop_data(file_path: str) -> List[Dict[str, Any]]:
                 }
                 data.append(formatted_item)
 
+    return data
+
+
+def load_contract_qa_data(file_path: str) -> List[Dict[str, Any]]:
+    """
+    加载 Contract QA 数据（合同条款问答）
+    询问合同中是否包含特定条款，或条款的具体内容。
+    """
+    data: List[Dict[str, Any]] = []
+    path = Path(file_path)
+    
+    paths = [path] if not path.is_dir() else list(path.glob("*.jsonl"))
+    
+    for filepath in paths:
+        if filepath.suffix != ".jsonl":
+            continue
+        
+        with jsonlines.open(filepath, "r") as reader:
+            for idx, item in enumerate(reader):
+                text = (item.get("text") or "").strip()
+                question = (item.get("question") or "").strip()
+                answer = (item.get("answer") or "").strip()
+                
+                if not text or not question:
+                    continue
+                
+                formatted_item = {
+                    "_id": item.get("id", f"contract_qa_{idx}"),
+                    "question": question,
+                    "answer": answer,
+                    "context": [("contract", [text])],
+                    "context_type": "contract",
+                    "task_type": "clause_extraction",
+                    "text_length": len(text),
+                }
+                data.append(formatted_item)
+    
+    return data
+
+
+def load_consumer_contracts_qa_data(file_path: str) -> List[Dict[str, Any]]:
+    """
+    加载 Consumer Contracts QA 数据（服务条款/用户协议问答）
+    针对 ToS 或用户协议的问答，通常涉及用户权利和义务。
+    """
+    data: List[Dict[str, Any]] = []
+    path = Path(file_path)
+    
+    paths = [path] if not path.is_dir() else list(path.glob("*.jsonl"))
+    
+    for filepath in paths:
+        if filepath.suffix != ".jsonl":
+            continue
+        
+        with jsonlines.open(filepath, "r") as reader:
+            for idx, item in enumerate(reader):
+                text = (item.get("text") or "").strip()
+                question = (item.get("question") or "").strip()
+                answer = (item.get("answer") or "").strip()
+                
+                if not text or not question:
+                    continue
+                
+                formatted_item = {
+                    "_id": item.get("id", f"consumer_qa_{idx}"),
+                    "question": question,
+                    "answer": answer,
+                    "context": [("terms_of_service", [text])],
+                    "context_type": "tos",
+                    "task_type": "user_agreement_qa",
+                    "text_length": len(text),
+                }
+                data.append(formatted_item)
+    
+    return data
+
+
+def load_privacy_policy_qa_data(file_path: str) -> List[Dict[str, Any]]:
+    """
+    加载 Privacy Policy QA 数据（隐私政策问答）
+    用户针对隐私政策提问，涉及数据收集、使用和共享。
+    """
+    data: List[Dict[str, Any]] = []
+    path = Path(file_path)
+    
+    paths = [path] if not path.is_dir() else list(path.glob("*.jsonl"))
+    
+    for filepath in paths:
+        if filepath.suffix != ".jsonl":
+            continue
+        
+        with jsonlines.open(filepath, "r") as reader:
+            for idx, item in enumerate(reader):
+                text = (item.get("text") or "").strip()
+                question = (item.get("question") or "").strip()
+                answer = (item.get("answer") or "").strip()
+                
+                if not text or not question:
+                    continue
+                
+                formatted_item = {
+                    "_id": item.get("id", f"privacy_qa_{idx}"),
+                    "question": question,
+                    "answer": answer,
+                    "context": [("privacy_policy", [text])],
+                    "context_type": "privacy_policy",
+                    "task_type": "data_handling_qa",
+                    "text_length": len(text),
+                }
+                data.append(formatted_item)
+    
+    return data
+
+
+def load_rule_qa_data(file_path: str) -> List[Dict[str, Any]]:
+    """
+    加载 Rule QA 数据（规则推导问答）
+    基于明确给出的规则进行逻辑推导。
+    """
+    data: List[Dict[str, Any]] = []
+    path = Path(file_path)
+    
+    paths = [path] if not path.is_dir() else list(path.glob("*.jsonl"))
+    
+    for filepath in paths:
+        if filepath.suffix != ".jsonl":
+            continue
+        
+        with jsonlines.open(filepath, "r") as reader:
+            for idx, item in enumerate(reader):
+                text = (item.get("text") or "").strip()
+                question = (item.get("question") or "").strip()
+                answer = (item.get("answer") or "").strip()
+                
+                if not text or not question:
+                    continue
+                
+                formatted_item = {
+                    "_id": item.get("id", f"rule_qa_{idx}"),
+                    "question": question,
+                    "answer": answer,
+                    "context": [("rule_definition", [text])],
+                    "context_type": "rules",
+                    "task_type": "logical_reasoning",
+                    "text_length": len(text),
+                }
+                data.append(formatted_item)
+    
     return data
 
 
@@ -407,6 +556,14 @@ def load_data(file_path: str, task: str = "hotpotqa") -> List[Dict[str, Any]]:
         return load_musique_data(file_path)
     elif task == "multihop":
         return load_multihop_data(file_path)
+    elif task == "qa/contract":
+        return load_contract_qa_data(file_path)
+    elif task == "qa/consumer":
+        return load_consumer_contracts_qa_data(file_path)
+    elif task == "qa/privacy":
+        return load_privacy_policy_qa_data(file_path)
+    elif task == "qa/rule":
+        return load_rule_qa_data(file_path)
     elif task.startswith("legalbench/qa"):
         return load_legalbench_qa_data(file_path)
     elif task.startswith("legalbench/entailment"):
@@ -429,7 +586,7 @@ def build_prompt(question: str, context_text: str, task: str = "hotpotqa") -> st
     Args:
         question: 问题文本
         context_text: 格式化后的context文本
-        task: 任务类型 (hotpotqa, musique, multihop, legalbench/*)
+        task: 任务类型 (hotpotqa, musique, multihop, qa/*, legalbench/*)
     
     Returns:
         完整的prompt
@@ -446,6 +603,26 @@ def build_prompt(question: str, context_text: str, task: str = "hotpotqa") -> st
         )
     elif task == "multihop":
         prompt = MULTIHOP_QA_BASE.format(
+            context_text=context_text,
+            question=question
+        )
+    elif task == "qa/contract":
+        prompt = QA_CONTRACT_BASE.format(
+            context_text=context_text,
+            question=question
+        )
+    elif task == "qa/consumer":
+        prompt = QA_CONSUMER_BASE.format(
+            context_text=context_text,
+            question=question
+        )
+    elif task == "qa/privacy":
+        prompt = QA_PRIVACY_BASE.format(
+            context_text=context_text,
+            question=question
+        )
+    elif task == "qa/rule":
+        prompt = QA_RULE_BASE.format(
             context_text=context_text,
             question=question
         )
@@ -721,6 +898,36 @@ def run_rag_evaluation(
                 answer = item.get("answer", "")
                 answers = [answer] if answer else []
 
+                query_instance = QueryInstance(
+                    query=item["question"],
+                    data=[
+                        f"{title}\n" + "\n".join(sentences)
+                        for title, sentences in item["context"]
+                    ],
+                    fixed_data=[],
+                    answers=answers,
+                    ground_truth=ground_truths
+                )
+                query_instances.append(query_instance)
+        elif task in ("qa/contract", "qa/consumer", "qa/privacy", "qa/rule"):
+            query_instances = []
+            for item in batch:
+                ground_truths = []
+                context_type = item.get("context_type", "legal_document")
+                supporting_flags = item.get("supporting_flags", []) or [True]
+                
+                for idx, (title, sentences) in enumerate(item["context"]):
+                    is_supporting = supporting_flags[idx] if idx < len(supporting_flags) else True
+                    if is_supporting:
+                        has_contradiction = True
+                        evidence = "\n".join(sentences)
+                        ground_truths.append((has_contradiction, evidence))
+                    else:
+                        ground_truths.append((False, ""))
+
+                answer = item.get("answer", "")
+                answers = [answer] if answer else []
+                
                 query_instance = QueryInstance(
                     query=item["question"],
                     data=[
