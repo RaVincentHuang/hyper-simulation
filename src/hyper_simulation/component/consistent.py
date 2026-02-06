@@ -77,54 +77,80 @@ def consistent_detection(
     严格遵循一致性检测：
     当 δ > θ 时，验证 hyper simulation 是否满足 ∀u∈V_q, ∃v∈V_d: (u,v)∈Π
     """
-    # Step 1: 计算向量距离
     consistent_logger = getLogger("consistency")
-    consistent_logger.debug(f"Enter the consistent detection")
-    
+    consistent_logger.debug("Enter the consistent detection")
+
+    # Step 1: 计算向量距离
     distance = get_distance(query_text, data_text)
-    
-    consistent_logger.info(f"Compute the cosine of the context {distance}, while threshold is {distance_threshold}")
-    # query.add_simulation_log(data_id=1, log=f"Query:\n{query_text}\nData:\n{data_text}\nCompute the cosine of the context {distance}, while threshold is {distance_threshold}")
-    
-    # 距离足够近 → 自动一致
+    consistent_logger.info(f"Compute cosine distance: {distance:.4f}, threshold={distance_threshold}")
+
+    # 距离足够近 → 自动一致（注意：此处原逻辑 return False 表示“无矛盾”，但语义易混淆）
     if distance <= distance_threshold:
-        return False, f"[CONSISTENT] Distance={distance:.3f} ≤ threshold={distance_threshold}"
-    
-    # Step 2: 执行hyper simulation
-    consistent_logger.debug(f"Enter the hyper_simulation")
+        evidence = f"[CONSISTENT] Distance={distance:.4f} ≤ threshold={distance_threshold}"
+        consistent_logger.info(evidence)
+        return False, evidence  # False = no contradiction
+
+    # Step 2: 执行 hyper simulation
+    consistent_logger.debug("Running hyper_simulation...")
     simulation, q_vertices_map, d_vertices_map = compute_hyper_simulation(query_hg, data_hg)
-    
-    consistent_logger.debug(f"Enter the consistent detection")
-    # Step 3: 验证全覆盖条件
+
+    # Step 3: 获取 critical vertices
+    critical_q_vertices = [v for v in query_hg.vertices if is_critical_vertex(v)]
+    consistent_logger.info(f"Critical Q vertices to cover: {len(critical_q_vertices)}")
+    for v in critical_q_vertices:
+        consistent_logger.info(f"  • Q{v.id}: '{v.text()}'")
+
+    if not critical_q_vertices:
+        evidence = f"[CONSISTENT] No critical vertices to cover (distance={distance:.4f} > threshold)"
+        consistent_logger.info(evidence)
+        return False, evidence
+
+    # Step 4: 验证全覆盖
     evidence_lines = []
     has_contradiction = False
-    critical_q_vertices = [v for v in query_hg.vertices if is_critical_vertex(v)]
+
+    # 构建 reverse map: sim_q_id → q_vertex
+    sim_id_to_q_vertex = {sim_id: q_vertices_map[sim_id] for sim_id in q_vertices_map}
+
     for q_vertex in critical_q_vertices:
         matched = False
-        for sim_q_id, sim_d_ids in simulation.items():
-            if q_vertices_map[sim_q_id].id == q_vertex.id and len(sim_d_ids) > 0:
-                matched = True
+        # 查找该 q_vertex 对应的 sim_id
+        target_sim_id = None
+        for sim_id, v in q_vertices_map.items():
+            if v.id == q_vertex.id:
+                target_sim_id = sim_id
                 break
-        
+
+        if target_sim_id is not None and target_sim_id in simulation:
+            sim_d_ids = simulation[target_sim_id]
+            if len(sim_d_ids) > 0:
+                matched = True
+
         if not matched:
             has_contradiction = True
-            evidence_lines.append(f"MISSING: '{q_vertex.text()}'")
+            evidence_lines.append(f"Q vertex unmatched in D: '{q_vertex.text()}' (ID={q_vertex.id})")
 
-    consistent_logger.info("\n".join(f"  • {line}" for line in evidence_lines))
-    # query.add_simulation_log(data_id=, log="\n".join(f"  • {line}" for line in evidence_lines))
-    
-    # 生成证据（严格基于hyper simulation结果）
+    # 全量日志输出（无截断）
+    if evidence_lines:
+        consistent_logger.info("Unmatched critical vertices in Q:")
+        for line in evidence_lines:
+            consistent_logger.info(f"  • {line}")
+    else:
+        consistent_logger.info("All critical Q vertices are matched in D.")
+
+    # 生成最终证据
     if has_contradiction:
         evidence = (
-            f"[CONTRADICTION] Distance={distance:.3f} > threshold={distance_threshold}\n"
+            f"[CONTRADICTION] Distance={distance:.4f} > threshold={distance_threshold}\n"
             + "\n".join(f"  • {line}" for line in evidence_lines)
         )
     else:
         evidence = (
-            f"[CONSISTENT] Distance={distance:.3f} > threshold but structural coverage satisfied\n"
-            f"  ✓ All {len(critical_q_vertices)} critical vertices matched via hyper simulation"
+            f"[CONSISTENT] Distance={distance:.4f} > threshold but structural coverage satisfied\n"
+            f"  ✓ All {len(critical_q_vertices)} critical Q vertices matched in D via hyper simulation"
         )
-    
+
+    consistent_logger.info(evidence)
     return has_contradiction, evidence
 
 

@@ -768,20 +768,8 @@ def run_rag_evaluation(
         
         # build data as `QueryInstance` by task
         if task == "hotpotqa":
-            # query_instance.query = data["question"]
-            # query_instance.data from data["context"]
-            # fixed_data is empty
-            # query_instance.answer form data["answer"]
-            # query_instance.ground_truths form data["supporting_facts"]
             query_instances = []
             for item in batch:
-                
-                # build ground_truth from supporting_facts
-                # output as (bool, str)
-                # since `supporting_facts`: {`title`: [...], `sent_id`: [...]}
-                # and context is List of (title, [sentences])
-                # therefore if a title in supporting_facts, we set has_contradiction to True
-                # and evidence is the sentences under that title joined as str, for each cor context by sent_id
                 supporting_facts = item.get('supporting_facts', {})
                 ground_truths = []
                 titles_set = set(supporting_facts.get('title', []))

@@ -1,22 +1,27 @@
 import logging
+import sys
 from pathlib import Path
 from logging.handlers import RotatingFileHandler
 from tqdm import tqdm
 from contextvars import ContextVar
+
 current_task: ContextVar[str] = ContextVar("task", default="hotpotqa")
 current_query_id: ContextVar[str] = ContextVar("query_id", default="")
 
-# 1. 定义一个自定义 Handler
-class TqdmLoggingHandler(logging.Handler):
+# 1. 定义一个自定义 Handler - 与tqdm兼容
+class TqdmLoggingHandler(logging.StreamHandler):
+    """
+    与tqdm兼容的日志处理器，将日志输出到stderr，避免与进度条混乱
+    """
     def __init__(self, level=logging.NOTSET):
-        super().__init__(level)
+        super().__init__(sys.stderr)
+        self.setLevel(level)
 
     def emit(self, record):
         try:
             msg = self.format(record)
-            # 核心：使用 tqdm.write 替代 print 或 sys.stdout.write
-            # 这能确保日志打印在进度条上方，而不会打断进度条
-            tqdm.write(msg)
+            # 使用tqdm.write确保在进度条上方输出
+            tqdm.write(msg, file=sys.stderr)
             self.flush()
         except Exception:
             self.handleError(record)
@@ -24,9 +29,8 @@ class TqdmLoggingHandler(logging.Handler):
 def getLogger(name: str, level: str = "INFO", log_dir: str = "logs") -> logging.Logger:
     """
     配置全局日志：Tqdm控制台兼容 + 轮转文件
+    使用stderr进行日志输出，确保不与tqdm进度条混乱
     """
-    # 使用函数属性实现单例模式（防止重复添加 Handler）
-    
     # 解析日志级别
     level_map = {
         "DEBUG": logging.DEBUG,
@@ -40,21 +44,18 @@ def getLogger(name: str, level: str = "INFO", log_dir: str = "logs") -> logging.
     log_path = Path(log_dir) / task
     if qid:
         log_path = log_path / qid
-    log_path.mkdir(exist_ok=True, parents=True) # parents=True防止父目录不存在报错
+    log_path.mkdir(exist_ok=True, parents=True)
     
     # 通用格式化器
     formatter = logging.Formatter(
-        fmt='%(asctime)s | %(name)-10s | %(levelname)-7s | %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+        fmt='%(asctime)s - %(levelname)-8s - %(message)s',
+        datefmt='%m/%d/%Y %H:%M:%S'
     )
     
-    # --- 修改点开始 ---
-    # 移除原有的 StreamHandler(sys.stdout)
-    # 替换为自定义的 TqdmLoggingHandler
+    # 控制台处理器 - 使用自定义的TqdmLoggingHandler输出到stderr
     console = TqdmLoggingHandler()
-    console.setLevel(logging.INFO) # 控制台通常只看 INFO
+    console.setLevel(logging.INFO)
     console.setFormatter(formatter)
-    # --- 修改点结束 ---
 
     # 文件 Handler (保持不变)
     file_handler = RotatingFileHandler(
@@ -63,36 +64,21 @@ def getLogger(name: str, level: str = "INFO", log_dir: str = "logs") -> logging.
         backupCount=5,
         encoding="utf-8"
     )
-    file_handler.setLevel(log_level) # 文件记录详细等级
+    file_handler.setLevel(log_level)
     file_handler.setFormatter(formatter)
     
-    # 配置根日志器
-    root = logging.getLogger(name) # 获取当前模块logger，或者使用 logging.getLogger() 获取根 logger
-    root.setLevel(log_level)
+    # 配置日志器
+    logger = logging.getLogger(name)
+    logger.setLevel(log_level)
     
     # 清除旧 handler 避免重复
-    if root.hasHandlers():
-        root.handlers.clear()
+    if logger.hasHandlers():
+        logger.handlers.clear()
         
-    root.addHandler(console)
-    root.addHandler(file_handler)
+    logger.addHandler(console)
+    logger.addHandler(file_handler)
     
-    return root
-
-# --- 测试代码 ---
-if __name__ == "__main__":
-    import time
+    # 防止向上传播到root logger，避免重复记录
+    logger.propagate = False
     
-    # 初始化 logger
-    logger = getLogger(level="DEBUG")
-    
-    logger.info("开始任务...")
-    
-    # 测试 Tqdm 兼容性
-    for i in tqdm(range(10), desc="模拟进度"):
-        time.sleep(0.5)
-        if i == 5:
-            # 这条日志会出现在进度条上方，且进度条不会断裂
-            logger.warning(f"检测到异常值在索引 {i}")
-            
-    logger.info("任务完成")
+    return logger

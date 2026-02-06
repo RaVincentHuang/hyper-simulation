@@ -1046,9 +1046,37 @@ def _get_matched_vertices(vertices1: list[Vertex], vertices2: list[Vertex]) -> d
             matched_vertices[node1].add(node2)
     return matched_vertices
 
-def get_d_match(sc1: SemanticCluster, sc2: SemanticCluster, score_threshold: float=0.0) -> list[tuple[Vertex, Vertex, float]]:
+def get_d_match(sc1: SemanticCluster, sc2: SemanticCluster, score_threshold: float = 0.0) -> list[tuple[Vertex, Vertex, float]]:
     dm_logger = getLogger("d_match")
-    dm_logger.info(f"D-Match开始: sc1={len(sc1.hyperedges)}边, sc2={len(sc2.hyperedges)}边, 阈值={score_threshold}")
+
+    # --- 提取 SC1 信息 ---
+    sc1_vertices_all = sc1.get_vertices()
+    sc1_vertices_noun = [v for v in sc1_vertices_all if not (v.pos_equal(Pos.VERB) or v.pos_equal(Pos.AUX))]
+    sc1_edges = sc1.hyperedges
+    sc1_text = sc1.text()
+    sc1_triples = sc1.to_triple() or []
+    sc1_triple_repr = str(sc1_triples[0]) if sc1_triples else "(no triple)"
+
+    # --- 提取 SC2 信息 ---
+    sc2_vertices_all = sc2.get_vertices()
+    sc2_vertices_noun = [v for v in sc2_vertices_all if not (v.pos_equal(Pos.VERB) or v.pos_equal(Pos.AUX))]
+    sc2_edges = sc2.hyperedges
+    sc2_text = sc2.text()
+    sc2_triples = sc2.to_triple() or []
+    sc2_triple_repr = str(sc2_triples[0]) if sc2_triples else "(no triple)"
+
+    # --- 完整日志：当前比较的语义簇对 ---
+    dm_logger.info(
+        f"=== D-Match 开始 (阈值={score_threshold}) ===\n"
+        f"→ SC1:\n"
+        f"   text='{sc1_text}'\n"
+        f"   triple={sc1_triple_repr}\n"
+        f"   nodes={len(sc1_vertices_all)} (noun={len(sc1_vertices_noun)}), edges={len(sc1_edges)}\n"
+        f"→ SC2:\n"
+        f"   text='{sc2_text}'\n"
+        f"   triple={sc2_triple_repr}\n"
+        f"   nodes={len(sc2_vertices_all)} (noun={len(sc2_vertices_noun)}), edges={len(sc2_edges)}"
+    )
     matches: list[tuple[Vertex, Vertex]] = []
     # 如果两个边的节点很少，则输出结果会很少
     sc1_vertices = list(filter(lambda v: not (v.pos_equal(Pos.VERB) or v.pos_equal(Pos.AUX)), sc1.get_vertices()))

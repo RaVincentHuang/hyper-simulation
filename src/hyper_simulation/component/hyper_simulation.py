@@ -40,58 +40,71 @@ def convert_local_to_sim(
     
     return sim_hg, node_text, sim_id_to_vertex, node_to_edges, vertex_to_sim_id
 
-
 def compute_allowed_pairs(
     query_vertices: Dict[int, Vertex],
     data_vertices: Dict[int, Vertex]
 ) -> Set[Tuple[int, int]]:
     """
-    宽松语义允许性判定：仅排除contradiction
-    理论依据：type_same应定义"语义不冲突"，而非"语义等价"
+    宽松语义允许性判定：仅排除 contradiction
+    理论依据：type_same 应定义为“语义不冲突”，而非“语义等价”
     """
     logger = getLogger("denial_comment")
-    text_pair_to_ids: Dict[Tuple[str, str], Tuple[int, int, Vertex, Vertex]] = {}
+    
+    if not query_vertices or not data_vertices:
+        if logger:
+            logger.info("Empty query or data vertices. Returning empty allowed set.")
+        return set()
+
+    # 构建所有 (q_id, d_id) 对及其文本，避免 key 冲突
+    pairs_list: List[Tuple[int, int, Vertex, Vertex]] = []
+    text_pairs: List[Tuple[str, str]] = []
+
     for q_id, q_vertex in query_vertices.items():
         for d_id, d_vertex in data_vertices.items():
-            key = (q_vertex.text(), d_vertex.text())
-            text_pair_to_ids[key] = (q_id, d_id, q_vertex, d_vertex)
-    
-    text_pairs = list(text_pair_to_ids.keys())
-    if not text_pairs:
-        return set()
-    
-    labels = get_nli_labels_batch(text_pairs)
-    allowed: Set[Tuple[int, int]] = set()
-    
-    # === 新增：准备日志数据（不改变任何逻辑）===
-    if logger is not None:
-        contradicted_logs = []
-    # =========================================
-    
-    for (text1, text2), label in zip(text_pairs, labels):
-        q_id, d_id, _, _ = text_pair_to_ids[(text1, text2)]
-        if label != "contradiction":  # 仅排除矛盾
-            allowed.add((q_id, d_id))
-        # === 新增：收集 contradiction 日志（不改变判断逻辑）===
-        elif logger is not None:
-            q_v, d_v = text_pair_to_ids[(text1, text2)][2], text_pair_to_ids[(text1, text2)][3]
-            contradicted_logs.append((q_id, d_id, q_v.text(), d_v.text()))
-        # =========================================
-    
-    # === 新增：输出日志（不影响返回值）===
-    if logger is not None and 'contradicted_logs' in locals():
-        if contradicted_logs:
-            logger.info(f"Contradiction pairs ({len(contradicted_logs)}):")
-            for i, (q_id, d_id, qt, dt) in enumerate(contradicted_logs[:5]):
-                qt_s = qt[:50] + "..." if len(qt) > 50 else qt
-                dt_s = dt[:50] + "..." if len(dt) > 50 else dt
-                logger.info(f"  [{i+1}] Q{q_id} ⇏ D{d_id} | '{qt_s}' vs '{dt_s}'")
-        else:
-            logger.info("No contradiction pairs found.")
-    # =========================================
-    
-    return allowed  # ← 返回值与原函数完全一致
+            pairs_list.append((q_id, d_id, q_vertex, d_vertex))
+            text_pairs.append((q_vertex.text(), d_vertex.text()))
 
+    labels = get_nli_labels_batch(text_pairs)
+
+    allowed: Set[Tuple[int, int]] = set()
+    allowed_logs: List[Tuple[int, int, str, str]] = []
+    contradicted_logs: List[Tuple[int, int, str, str]] = []
+
+    for (q_id, d_id, q_v, d_v), label in zip(pairs_list, labels):
+        qt, dt = q_v.text(), d_v.text()
+        if label != "contradiction":
+            allowed.add((q_id, d_id))
+            allowed_logs.append((q_id, d_id, qt, dt))
+        else:
+            contradicted_logs.append((q_id, d_id, qt, dt))
+
+    # === 全量日志输出（无任何截断）===
+    if logger is not None:
+        total = len(pairs_list)
+        logger.info(f"Total Q-D pairs processed: {total}")
+        logger.info(f"Allowed pairs count: {len(allowed_logs)}")
+        logger.info(f"Contradicted pairs count: {len(contradicted_logs)}")
+
+        # Log EVERY allowed pair
+        if allowed_logs:
+            logger.info("=== BEGIN ALLOWED PAIRS ===")
+            for idx, (q_id, d_id, qt, dt) in enumerate(allowed_logs, start=1):
+                # 不截断文本，保留完整内容（便于精确比对）
+                logger.info(f"[ALLOWED {idx}] Q{q_id} ⇨ D{d_id} | '{qt}' vs '{dt}'")
+            logger.info("=== END ALLOWED PAIRS ===")
+        else:
+            logger.info("No allowed pairs.")
+
+        # Log EVERY contradicted pair with explicit reason
+        if contradicted_logs:
+            logger.info("=== BEGIN CONTRADICTED PAIRS ===")
+            for idx, (q_id, d_id, qt, dt) in enumerate(contradicted_logs, start=1):
+                logger.info(f"[CONTRADICTED {idx}] Q{q_id} ⇏ D{d_id} | '{qt}' vs '{dt}' (reason: NLI=contradiction)")
+            logger.info("=== END CONTRADICTED PAIRS ===")
+        else:
+            logger.info("No contradicted pairs.")
+
+    return allowed
 
 def build_delta_and_dmatch(
     query: SimHypergraph,
@@ -127,52 +140,65 @@ def build_delta_and_dmatch(
     # === 阶段1：记录原始结果（来自 get_semantic_cluster_pairs）===
     raw_pairs = list(get_semantic_cluster_pairs(query_local_hg, data_local_hg, sc_logger))
     sc_logger.info(f"语义簇生成完成: 共 {len(raw_pairs)} 个原始簇对")
-
-    # # 可选：记录所有原始簇摘要（避免日志爆炸）
-    # if raw_pairs:
-    #     sc_logger.info("原始簇对摘要（前5个）:")
-    #     for i, (sc_q, sc_d, score) in enumerate(raw_pairs[:5]):
-    #         q_text = sc_q.text()[:40] + "..." if len(sc_q.text()) > 40 else sc_q.text()
-    #         d_text = sc_d.text()[:40] + "..." if len(sc_d.text()) > 40 else sc_d.text()
-    #         sc_logger.info(f"  [{i+1}] score={score:.3f} | Q: '{q_text}' | D: '{d_text}'")
-    #     if len(raw_pairs) > 5:
-    #         sc_logger.info(f"  ... (+{len(raw_pairs) - 5} more)")
-
     # === 阶段2：处理并记录过滤后结果 ===
     cluster_count = 0
     for sc_q, sc_d, sim_score in raw_pairs:
-        # 记录当前处理的原始簇
-        q_text_short = sc_q.text()
-        d_text_short = sc_d.text()
-        
+        # --- 提取结构信息 ---
+        q_vertices = sc_q.get_vertices()
+        d_vertices = sc_d.get_vertices()
+        q_edges = sc_q.hyperedges
+        d_edges = sc_d.hyperedges
+
+        q_triples = sc_q.to_triple() or []
+        d_triples = sc_d.to_triple() or []
+
+        # 取第一个三元组作为代表（若存在）
+        q_triple_repr = str(q_triples[0]) if q_triples else "(no triple)"
+        d_triple_repr = str(d_triples[0]) if d_triples else "(no triple)"
+
+        q_text = sc_q.text()
+        d_text = sc_d.text()
+
+        # --- 日志：原始簇详情（无论是否采纳）---
+        sc_logger.info(
+            f"→ 原始簇对 | score={sim_score:.3f}\n"
+            f"  Q: text='{q_text}'\n"
+            f"     triple={q_triple_repr}\n"
+            f"     nodes={len(q_vertices)}, edges={len(q_edges)}\n"
+            f"  D: text='{d_text}'\n"
+            f"     triple={d_triple_repr}\n"
+            f"     nodes={len(d_vertices)}, edges={len(d_edges)}"
+        )
+
+        # --- 过滤逻辑（保持不变）---
         if sim_score < 0.5:
-            sc_logger.info(f"  → 跳过: 低相似度 ({sim_score:.3f}) | Q: '{q_text_short}' | D: '{d_text_short}'")
+            sc_logger.info(f"  → 跳过: 低相似度 ({sim_score:.3f})")
             continue
-        
-        q_vs = [v for v in sc_q.get_vertices() if not (v.pos_equal(Pos.VERB) or v.pos_equal(Pos.AUX))]
-        d_vs = [v for v in sc_d.get_vertices() if not (v.pos_equal(Pos.VERB) or v.pos_equal(Pos.AUX))]
+
+        q_vs = [v for v in q_vertices if not (v.pos_equal(Pos.VERB) or v.pos_equal(Pos.AUX))]
+        d_vs = [v for v in d_vertices if not (v.pos_equal(Pos.VERB) or v.pos_equal(Pos.AUX))]
         if not q_vs or not d_vs:
-            sc_logger.info(f"  → 跳过: 无名词节点 (Q:{len(q_vs)}/{len(sc_q.get_vertices())}, D:{len(d_vs)}/{len(sc_d.get_vertices())}) | Q: '{q_text_short}'")
+            sc_logger.info(f"  → 跳过: 无名词节点 (Q:{len(q_vs)}/{len(q_vertices)}, D:{len(d_vs)}/{len(d_vertices)})")
             continue
-            
+
         q_rep = min(q_vs, key=lambda v: v.id)
         d_rep = min(d_vs, key=lambda v: v.id)
         q_nid = vertex_to_sim_id_q.get(q_rep)
         d_nid = vertex_to_sim_id_d.get(d_rep)
         if q_nid is None or d_nid is None:
-            sc_logger.info(f"  → 跳过: 映射缺失 (Q{q_rep.id}→{q_nid}, D{d_rep.id}→{d_nid}) | Q: '{q_text_short}'")
+            sc_logger.info(f"  → 跳过: 映射缺失 (Q{q_rep.id}→{q_nid}, D{d_rep.id}→{d_nid})")
             continue
-                
+
         q_es = list({e for v in q_vs for e in query_node_edges.get(vertex_to_sim_id_q.get(v), []) if e})
         d_es = list({e for v in d_vs for e in data_node_edges.get(vertex_to_sim_id_d.get(v), []) if e})
-        
+
         sc_id = delta.add_sematic_cluster_pair(
-            Node(q_nid, sc_q.text()),
-            Node(d_nid, sc_d.text()),
+            Node(q_nid, q_text),
+            Node(d_nid, d_text),
             q_es,
             d_es
         )
-        
+
         try:
             matches = {
                 (vertex_to_sim_id_q[vq], vertex_to_sim_id_d[vd])
@@ -182,18 +208,22 @@ def build_delta_and_dmatch(
         except (AssertionError, AttributeError, IndexError) as e:
             sc_logger.warning(f"  → 语义簇匹配异常: {type(e).__name__}, 降级为空匹配")
             matches = set()
-        
+
         d_delta_matches[(sc_id, sc_id)] = matches
         cluster_count += 1
 
-        # 记录采纳的簇（含文本）
+        # --- 日志：采纳的簇（含完整结构）---
         sc_logger.info(
-            f"  → 采纳 #{cluster_count}: "
-            f"score={sim_score:.3f}, "
-            f"Q_rep=Q{q_rep.id}('{q_rep.text()}'), "
-            f"D_rep=D{d_rep.id}('{d_rep.text()}'), "
-            f"Q_nodes={len(q_vs)}, D_nodes={len(d_vs)}, "
-            f"matches={len(matches)}"
+            f"→ 采纳 #{cluster_count} | score={sim_score:.3f}\n"
+            f"  Q_rep=Q{q_rep.id}('{q_rep.text()}')\n"
+            f"     full_text='{q_text}'\n"
+            f"     triple={q_triple_repr}\n"
+            f"     nodes={len(q_vertices)} (noun={len(q_vs)}), edges={len(q_edges)}\n"
+            f"  D_rep=D{d_rep.id}('{d_rep.text()}')\n"
+            f"     full_text='{d_text}'\n"
+            f"     triple={d_triple_repr}\n"
+            f"     nodes={len(d_vertices)} (noun={len(d_vs)}), edges={len(d_edges)}\n"
+            f"  D-Match count: {len(matches)}"
         )
 
     sc_logger.info(f"语义簇构建完成: 原始 {len(raw_pairs)} → 有效 {cluster_count} 个簇对")   
