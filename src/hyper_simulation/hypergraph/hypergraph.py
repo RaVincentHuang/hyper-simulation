@@ -242,6 +242,53 @@ class Hyperedge:
             if node.index >= self.start and node.index <= self.end:
                 return node
         assert False, f"Vertex does not contain a node in hyperedge range, Vertex nodes: {vertex.nodes}, Hyperedge range: {self.start}-{self.end}, Hyperedge is {self.desc}"
+
+    def text(self) -> str:
+        """Get a cleaned description using resolved node texts within the sentence range."""
+        sentence = self.full_desc or ""
+        sentence_by_range = self.desc or ""
+        # print(f"Hyperedge.text(): sentence_by_range='{sentence_by_range}' in sentence='{sentence}'")
+        # Helper to extract prefix/suffix
+        def calc_prefix_suffix(range_text: str, full_sentence: str) -> tuple[str, str]:
+            if not range_text or not full_sentence:
+                return "", ""
+            start_idx = full_sentence.find(range_text)
+            if start_idx != -1:
+                prefix = full_sentence[:start_idx].strip()
+                suffix = full_sentence[start_idx + len(range_text):].strip()
+                return prefix, suffix
+            return "", ""
+
+        prefix, suffix = calc_prefix_suffix(sentence_by_range, sentence)
+
+        # Build replacement list
+        replacement: list[tuple[str, str]] = []
+        root_node = self.current_node(self.root)
+        for vertex in self.vertices:
+            node = self.current_node(vertex)
+            # print(f"<'{node.text}'>")
+            if node == root_node:
+                continue
+            resolved_text = Vertex.resolved_text(node)
+            original_text = node.covered_sentence
+            # print(f"    '{original_text}' --> '{resolved_text}'")
+            if original_text and resolved_text:
+                replacement.append((original_text, resolved_text))
+
+        # Add prefix/suffix removal
+        if prefix:
+            replacement.append((prefix, ""))
+        if suffix:
+            replacement.append((suffix, ""))
+
+        # Apply replacements
+        final_sentence = sentence
+        for old, new in replacement:
+            if old and old in final_sentence:
+                final_sentence = final_sentence.replace(old, new)
+
+        final_sentence = " ".join(final_sentence.split())
+        return final_sentence
     
     def have_no_link(self, vertex1: Vertex, vertex2: Vertex) -> bool:
         """判断两个非根顶点是否应断开连接（避免过度连接）"""
@@ -479,44 +526,59 @@ class Hypergraph:
         logger.debug(f"paths({vertex1.text()}, {vertex2.text()}) → {len(paths)} paths (computed)")
         return paths
 
-    def log_summary(self, logger: logging.Logger, level: str = "DEBUG", max_vertices: int = 20, max_edges: int = 10) -> None:
+    def log_summary(self, logger: logging.Logger, level: str = "INFO") -> None:
         """
-        将超图结构摘要写入日志，避免输出过长。
-        
         Args:
             logger: 日志器实例（应已绑定当前 query_id/task）
             level: 日志级别（"DEBUG", "INFO"）
-            max_vertices: 最多显示的顶点数
-            max_edges: 最多显示的超边数
         """
         log_func = getattr(logger, level.lower())
         
         # 基础统计
-        log_func(f"Hypergraph Summary:")
+        log_func(f"Hypergraph:")
         log_func(f"  • Vertices: {len(self.vertices)}")
         log_func(f"  • Hyperedges: {len(self.hyperedges)}")
         log_func(f"  • Doc ID: {getattr(self.doc, 'id', 'N/A')}")
         
-        # 顶点示例（截断）
         if self.vertices:
-            sample_vertices = self.vertices[:max_vertices]
-            vertex_texts = [f"    - [{v.id}] {v.text()[:50]}{'...' if len(v.text()) > 50 else ''}" for v in sample_vertices]
-            log_func("  • Sample Vertices:")
+            sample_vertices = self.vertices
+            vertex_texts = [f"    - [{v.id}] {v.text()}" for v in sample_vertices]
+            log_func("  • Vertices:")
             for vt in vertex_texts:
                 log_func(vt)
-            if len(self.vertices) > max_vertices:
-                log_func(f"    ... (+{len(self.vertices) - max_vertices} more)")
         
-        # 超边示例（截断）
         if self.hyperedges:
-            sample_edges = self.hyperedges[:max_edges]
+            sample_edges = self.hyperedges
             edge_descs = []
-            for e in sample_edges:
-                node_ids = [v.id for v in e.vertices]
-                desc = f"    - Edge#{e.id if hasattr(e, 'id') else 'N/A'}: nodes={node_ids}, desc='{e.desc[:40]}...'"
+            for i, e in enumerate(sample_edges):
+                nodes = ", ".join(f"[{v.id}] {v.text()}" for v in e.vertices)
+                desc = f"    - Hyperedge#{i}: ({nodes}); '{e.desc}'"
                 edge_descs.append(desc)
-            log_func("  • Sample Hyperedges:")
+            log_func("  • Hyperedges:")
             for ed in edge_descs:
                 log_func(ed)
-            if len(self.hyperedges) > max_edges:
-                log_func(f"    ... (+{len(self.hyperedges) - max_edges} more)")
+
+    def __str__(self) -> str:
+        # Act like log_summary but return string
+        lines = []
+        lines.append(f"Hypergraph:")
+        lines.append(f"  • Vertices: {len(self.vertices)}")
+        lines.append(f"  • Hyperedges: {len(self.hyperedges)}")
+        lines.append(f"  • Doc ID: {getattr(self.doc, 'id', 'N/A')}")
+        if self.vertices:
+            sample_vertices = self.vertices
+            vertex_texts = [f"    - [{v.id}] {v.text()}" for v in sample_vertices]
+            lines.append("  • Vertices:")
+            for vt in vertex_texts:
+                lines.append(vt)
+        if self.hyperedges:
+            sample_edges = self.hyperedges
+            edge_descs = []
+            for i, e in enumerate(sample_edges):
+                nodes = ", ".join(f"[{v.id}] {v.text()}" for v in e.vertices)
+                desc = f"    - Hyperedge#{i}: ({nodes}); '{e.text()}'"
+                edge_descs.append(desc)
+            lines.append("  • Hyperedges:")
+            for ed in edge_descs:
+                lines.append(ed)
+        return "\n".join(lines)

@@ -228,7 +228,11 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/62/a1/3d680cbfd5f4b8f15abc1d571870c5fc3e594bb582bc3b64ea099db13e56/jinja2-3.1.6-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/7b/91/984aca2ec129e2757d1e4e3c81c3fcda9d0f85b74670a094cc443d9ee949/joblib-1.5.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/f8/62/d9ba6323b9202dd2fe166beab8a86d29465c41a0288cbe229fac60c1ab8d/jsonlines-4.0.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/73/07/02e16ed01e04a374e644b575638ec7987ae846d25ad97bcc9945a3ee4b0e/jsonpatch-1.33-py2.py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/71/92/5e77f98553e9e75130c78900d000368476aed74276eb8ae8796f65f00918/jsonpointer-3.0.0-py2.py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/d0/b1/751f7f34f1fbb1f1c628e6e03bd4228f2fdc0b2a8bfd7ca4b20c8a293ac3/langchain_core-0.0.11-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/dd/c1/d10b371bcba7abce05e2b33910e39c33cfa496a53f13640b7b8e10bb4d2b/langcodes-3.5.1-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/97/cd/1c618f89d3fcbb375c99a3ea950bffba8a01862cc0f0ab5032dfb95e8d1e/langsmith-0.0.92-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/af/cd/ce6e848bbf2c32314c9b237839119c5a564a59725b53157c856e90937b7a/markupsafe-3.0.3-cp310-cp310-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/43/e3/7d92a15f894aa0c9c4b49b8ee9ac9850d6e63b03c9c32c0367a13ae62209/mpmath-1.3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/5e/4f/9c7992f245554d8b173f6f0a048ad24b3e645d883f096857ec2c0822b8bd/multidict-6.7.0-cp310-cp310-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
@@ -277,6 +281,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/89/a1/8ee8939a0acef294a84cde0df5867312a746fa9d62c48a830db2af8106f3/spacy_transformers-1.1.9-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/c6/ce/71766be1488ce4058dc5eded6f5c0ce7cbb18ff7263f3cc718fe8b1033ad/srsly-2.5.2-cp310-cp310-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/a2/09/77d55d46fd61b4a135c444fc97158ef34a095e5681d0a6c10b75bf356191/sympy-1.14.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/d2/3f/8ba87d9e287b9d385a02a7114ddcef61b26f86411e121c9003eb509a1773/tenacity-8.5.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/82/4f/1695e70ceb3604f19eda9908e289c687ea81c4fecef4d90a9d1d0f2f7ae9/thefuzz-0.22.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d7/fc/2ea1a37a60ad1c7b9f41699ccd29170f6d479d3349e6742503278b4bc811/thinc-8.1.12-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/94/60/ff26cce378023624ffcad91edaa4871f561d6ba7295185c45037ddba80e2/tokenizers-0.13.3-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
@@ -2027,6 +2032,16 @@ packages:
   - httpx-sse>=0.4.0,<1.0.0
   - numpy>=1.26.2,<3
   requires_python: '>=3.9,<4.0'
+- pypi: https://files.pythonhosted.org/packages/d0/b1/751f7f34f1fbb1f1c628e6e03bd4228f2fdc0b2a8bfd7ca4b20c8a293ac3/langchain_core-0.0.11-py3-none-any.whl
+  name: langchain-core
+  version: 0.0.11
+  sha256: 7208bc195559336fae91dbd3d9b4b78e52d5cbc4166411f24b03845832d4c329
+  requires_dist:
+  - jsonpatch>=1.33,<2.0
+  - langsmith>=0.0.63,<0.1.0
+  - pydantic>=1,<3
+  - tenacity>=8.1.0,<9.0.0
+  requires_python: '>=3.8.1,<4.0'
 - pypi: https://files.pythonhosted.org/packages/dd/35/27164f5f23517be8639b518130e6235293dae52c41988790e0b50dd7ba11/langchain_core-0.3.49-py3-none-any.whl
   name: langchain-core
   version: 0.3.49
@@ -2097,6 +2112,14 @@ packages:
   - twine ; extra == 'build'
   - language-data>=1.2 ; extra == 'data'
   requires_python: '>=3.9'
+- pypi: https://files.pythonhosted.org/packages/97/cd/1c618f89d3fcbb375c99a3ea950bffba8a01862cc0f0ab5032dfb95e8d1e/langsmith-0.0.92-py3-none-any.whl
+  name: langsmith
+  version: 0.0.92
+  sha256: ddcf65e3b5ca11893ae8ef9816ce2a11a089d051be491886e43a2c4556b88fd0
+  requires_dist:
+  - pydantic>=1,<3
+  - requests>=2,<3
+  requires_python: '>=3.8.1,<4.0'
 - pypi: https://files.pythonhosted.org/packages/05/5b/c4146662d2fee181b02ae56bd55615e0564fe3d8d4cf66db18186b942a29/langsmith-0.3.15-py3-none-any.whl
   name: langsmith
   version: 0.3.15
@@ -4709,6 +4732,17 @@ packages:
   - pytest>=7.1.0 ; extra == 'dev'
   - hypothesis>=6.70.0 ; extra == 'dev'
   requires_python: '>=3.9'
+- pypi: https://files.pythonhosted.org/packages/d2/3f/8ba87d9e287b9d385a02a7114ddcef61b26f86411e121c9003eb509a1773/tenacity-8.5.0-py3-none-any.whl
+  name: tenacity
+  version: 8.5.0
+  sha256: b594c2a5945830c267ce6b79a166228323ed52718f30302c1359836112346687
+  requires_dist:
+  - reno ; extra == 'doc'
+  - sphinx ; extra == 'doc'
+  - pytest ; extra == 'test'
+  - tornado>=4.5 ; extra == 'test'
+  - typeguard ; extra == 'test'
+  requires_python: '>=3.8'
 - pypi: https://files.pythonhosted.org/packages/b6/cb/b86984bed139586d01532a587464b5805f12e397594f19f931c4c2fbfa61/tenacity-9.0.0-py3-none-any.whl
   name: tenacity
   version: 9.0.0

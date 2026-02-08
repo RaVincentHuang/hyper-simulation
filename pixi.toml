@@ -76,11 +76,18 @@ pywsd = "==1.2.5"
 transformers = "==4.25.1"
 spacy-transformers = "==1.1.9"
 jsonlines = ">=4.0.0, <5"
+langchain_core = "*"
 
 [feature.hypergraph.tasks]
 dependency = { cmd = "python tests/test_dependency.py"}
 build = { cmd = "python src/hyper_simulation/question_answer/rag_no_retrival.py --method hyper_simulation --build False" }
 # pixi run -e hypergraph build --data_path /home/vincent/.dataset/HotpotQA/sample20distractor --task hotpotqa
+# pixi run -e hypergraph build --data_path /home/vincent/.dataset/musique/sample50 --task musique
+# pixi run -e hypergraph build --data_path /home/vincent/.dataset/MultiHop/sample50 --task multihop
+# pixi run -e hypergraph build --data_path /home/vincent/.dataset/LegalBench/sample50 --task legalbench/entailment
+
+test_build = { cmd = "python tests/test_hypergrah_gen.py"}
+display = { cmd = "python tests/tools/spacy_debug.py" }
 
 [feature.simulation.dependencies]
 python = "3.10.*"
@@ -103,8 +110,11 @@ test_contradoc = { cmd = "python tests/test_contradoc.py" }
 rag_no_retrival = { cmd = "python src/hyper_simulation/question_answer/rag_no_retrival.py" }
 hyper_simulation = { cmd = "python src/hyper_simulation/question_answer/rag_no_retrival.py --method hyper_simulation --output_path /home/vincent/hyper-simulation/data/hyper_simulation" }
 # LD_LIBRARY_PATH="/home/vincent/hyper-simulation/.pixi/envs/simulation/lib" \
-# pixi run -e simulation hyper_simulation --data_path /home/vincent/.dataset/HotpotQA/sample20distractor
+# pixi run -e simulation hyper_simulation --data_path /home/vincent/.dataset/HotpotQA/sample20distractor --task hotpotqa
 # pixi run -e simulation rag_no_retrival --data_path /home/vincent/.dataset/HotpotQA/sample20distractor --output_path data/baseline/contradoc --method contradoc --task hotpotqa
+
+test_nli = { cmd = "python tests/tools/nli.py" }
+
 [environments]
 hypergraph = { features = ["hypergraph"] }
 simulation = { features = ["simulation"] }

@@ -146,6 +146,43 @@ class Entity(Enum):
 dead_dep = {Dep.dative, Dep.prt, Dep.parataxis}
 solved_dep = {Dep.meta, Dep.poss, Dep.det, Dep.predet, Dep.intj}
 
+
+def _restrict_correfs(clusters: list[list[tuple[int, int]]], level: int=0) -> list[list[tuple[int, int]]]:
+    restricted = []
+    for cluster in clusters:
+        # Level 0: Do not restrict
+        # Level 1: All spans in a cluster can not be sub of another span in the same cluster
+        # Level 2: All spans in a cluster can not have intersection with another span in the same cluster
+        if level == 0:
+            restricted.append(cluster)
+        elif level == 1:
+            is_sub = False
+            for span in cluster:
+                if is_sub:
+                    break
+                for other_span in cluster:
+                    if span == other_span:
+                        continue
+                    if span[0] >= other_span[0] and span[1] <= other_span[1]:
+                        is_sub = True
+                        break
+            if not is_sub:
+                restricted.append(cluster)
+        elif level == 2:
+            has_intersection = False
+            for span in cluster:
+                if has_intersection:
+                    break
+                for other_span in cluster:
+                    if span == other_span:
+                        continue
+                    if not (span[1] <= other_span[0] or span[0] >= other_span[1]):
+                        has_intersection = True
+                        break
+            if not has_intersection:
+                restricted.append(cluster)
+    return restricted
+
 class Node:
     def __init__(self, text: str, pos: Pos, tag: Tag, dep: Dep, ent: Entity, lemma: str, index: int) -> None:
         self.text = text
@@ -156,6 +193,7 @@ class Node:
         self.ent: Entity = ent
         self.lemma: str = lemma
         self.sentence: str = text
+        self.covered_sentence: str = text
         self.sentence_start: int = -1
         self.sentence_end: int = -1
         self.index = index
@@ -193,6 +231,7 @@ class Node:
         
     def set_sentence(self, sentence: str, start: int, end: int) -> None:
         self.sentence = sentence
+        self.covered_sentence = sentence
         self.sentence_start = start
         self.sentence_end = end
         
@@ -226,6 +265,7 @@ class Node:
             dep = token.dep_
             ent = token.ent_type_ if token.ent_type_ else "NOT_ENTITY"
             sentence = doc[token.left_edge.i : token.right_edge.i + 1].text
+            # print(f"Node '{token.text}': sentence span [{token.left_edge.i}, {token.right_edge.i + 1}): '{sentence}'")
             node = Node(
                 text=token.text,
                 pos=Pos[pos],
@@ -236,7 +276,7 @@ class Node:
                 index=token.i,
             )
             node.set_sentence(sentence, token.left_edge.i, token.right_edge.i + 1)
-            # print(f"Set sentence for Node '{node.text}' [{node.sentence_start}, {node.sentence_end}): \n\t'{node.sentence}'")
+            # print(f"Set sentence for Node '{node.text}' :> {token.left_edge.text} ({node.sentence_start}), {token.right_edge.text} ({node.sentence_end}): \n\t'{node.sentence}'")
             nodes.append(node)
         
         for token, node in zip(doc, nodes):
@@ -252,6 +292,8 @@ class Node:
         if doc._.coref_clusters is not None and doc._.resolved_text is not None:
             text, resolved_text, coref_clusters = doc.text, doc._.resolved_text, doc._.coref_clusters
             # print(f"\n[Coreference Processing] Found {len(coref_clusters)} coreference cluster(s)")
+            
+            coref_clusters = _restrict_correfs(coref_clusters, level=1)
             cluster_id = 0
             for cluster in coref_clusters:
                 cluster_tokens: list[Node] = []
@@ -462,6 +504,7 @@ class Relationship:
         for entity in self.entities[1:]:
             new_text = self.node_text(entity)
             old_candidates = [entity.sentence, Vertex.resolved_text(entity)]
+            # print(f"Replacing entity in relationship sentence: '{entity.sentence}' --> '{new_text}' (candidates: {old_candidates})")
             for old in old_candidates:
                 if old and old in sentence:
                     sentence = sentence.replace(old, new_text, 1)

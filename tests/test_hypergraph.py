@@ -3,7 +3,7 @@ import os
 os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
 from hyper_simulation.hypergraph.hypergraph import Hypergraph
-from hyper_simulation.component.sematic_cluster import get_semantic_cluster_pairs, SemanticCluster, get_d_match
+from hyper_simulation.component.semantic_cluster import get_semantic_cluster_pairs, SemanticCluster, get_d_match
 
 
 query_file = "data/hypergraph/query_hypergraph.pkl"
@@ -20,7 +20,7 @@ for qc, dc, score in pairs:
     print(f"Data Cluster Text: {dc.text()}, dc len: {sum(len(he.vertices) for he in dc.hyperedges)}")
     print(f"Vertices in Data Cluster:[{', '.join(v.text() for v in dc.get_vertices())}]")
     print(f"Similarity Score: {score:.4f}")
-    matches = get_d_match(qc, dc, )
+    matches = get_d_match(qc, dc)
     for u, v, m_score in matches:
         print(f"  Match Vertex Pair: '{u.text()}' <-> '{v.text()}', Match Score: {m_score:.4f}")
     print("-----")

@@ -3,6 +3,7 @@
 目录结构: {base_dir}/{dataset_name}/{instance_id}/{query.pkl, data_0.pkl, ...}
 """
 import hashlib
+import re
 from pathlib import Path
 from typing import List, Optional, Union
 import spacy
@@ -15,6 +16,50 @@ from hyper_simulation.hypergraph.dependency import Node, LocalDoc, Dependency
 from hyper_simulation.hypergraph.combine import combine, calc_correfs_str
 
 _NLP: Optional[spacy.Language] = None
+
+
+def normalize_special_chars(text: str) -> str:
+    """
+    处理字符串中的特殊转义字符，将它们全部转化为空格
+    
+    Args:
+        text: 输入字符串
+    
+    Returns:
+        处理后的字符串，所有特殊转义字符都被替换为空格
+    
+    Examples:
+        >>> normalize_special_chars("Hello\\nWorld\\tTest")
+        "Hello World Test"
+        >>> normalize_special_chars("Line1\\rLine2")
+        "Line1 Line2"
+    """
+    # 替换常见的转义字符为空格
+    special_chars = {
+        '\\n': ' ',   # 换行符
+        '\\r': ' ',   # 回车符
+        '\\t': ' ',   # 制表符
+        '\\v': ' ',   # 垂直制表符
+        '\\f': ' ',   # 换页符
+        '\\b': ' ',   # 退格符
+        '\\a': ' ',   # 响铃符
+        '\n': ' ',    # 实际换行符
+        '\r': ' ',    # 实际回车符
+        '\t': ' ',    # 实际制表符
+        '\v': ' ',    # 实际垂直制表符
+        '\f': ' ',    # 实际换页符
+        '\b': ' ',    # 实际退格符
+        '\a': ' ',    # 实际响铃符
+    }
+    
+    result = text
+    for char, replacement in special_chars.items():
+        result = result.replace(char, replacement)
+    
+    # 合并多个连续空格为一个空格
+    result = re.sub(r' +', ' ', result)
+    
+    return result.strip()
 
 
 def get_nlp() -> spacy.Language:
@@ -97,6 +142,10 @@ def build_hypergraph_for_query_instance(
     
     return str(instance_dir.resolve())
 
+def test_build_hypergraph_for_query_instance(query_instance: QueryInstance) -> tuple[LocalHypergraph, List[LocalHypergraph]]:
+    query_hg = text_to_hypergraph(query_instance.query)
+    data_list = [text_to_hypergraph(doc_text) for doc_text in query_instance.data]
+    return query_hg, data_list
 
 def build_hypergraph_batch(
     query_instances: List[QueryInstance],

@@ -7,7 +7,6 @@ from venv import logger
 from hyper_simulation.llm import prompt
 from hyper_simulation.question_answer.vmdit import relation
 from sympy import content
-import tqdm
 from hyper_simulation.graph_generator.ontology import general_entity, general_relation
 from hyper_simulation.llm.prompt.graph import graph_building, simple_graph_building, graph_building_without_type, graph_records
 from hyper_simulation.llm.prompt.graph import graph_entity_records_msg, graph_relation_records_msg, graph_attributes_records_msg
