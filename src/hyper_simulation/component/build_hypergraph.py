@@ -77,15 +77,15 @@ def text_to_doc(text: str) -> Doc:
     cfg = {"fastcoref": {'resolve_text': True}} if "fastcoref" in nlp.pipe_names else {}
     return nlp(text, component_cfg=cfg)
 
-def doc_to_hypergraph(doc: Doc, text: str) -> LocalHypergraph:
+def doc_to_hypergraph(doc: Doc, text: str, is_query: bool = False) -> LocalHypergraph:
     correfs = calc_correfs_str(doc) if hasattr(doc._, "coref_clusters") else set()
-    spans_to_merge = combine(doc, correfs)
+    spans_to_merge = combine(doc, correfs, is_query=is_query)
     with doc.retokenize() as retokenizer:
         for span in spans_to_merge:
             retokenizer.merge(span)
     nodes, roots = Node.from_doc(doc)
     local_doc = LocalDoc(doc)
-    dep = Dependency(nodes, roots, local_doc)
+    dep = Dependency(nodes, roots, local_doc, is_query=is_query)
     vertices, rels, id_map = (
         dep.solve_conjunctions().mark_pronoun_antecedents().mark_prefixes().mark_vertex().compress_dependencies().calc_relationships()
     )
@@ -93,9 +93,9 @@ def doc_to_hypergraph(doc: Doc, text: str) -> LocalHypergraph:
     hypergraph.original_text = text
     return hypergraph
 
-def text_to_hypergraph(text: str) -> LocalHypergraph:
+def text_to_hypergraph(text: str, is_query: bool = False) -> LocalHypergraph:
     doc = text_to_doc(text)
-    return doc_to_hypergraph(doc, text)
+    return doc_to_hypergraph(doc, text, is_query=is_query)
 
 def generate_instance_id(query: str) -> str:
     normalized = ''.join(query.split()).lower()
@@ -119,7 +119,7 @@ def build_hypergraph_for_query_instance(
     # 构建query超图
     query_path = instance_dir / "query.pkl"
     if not query_path.exists() or force_rebuild:
-        query_hg = text_to_hypergraph(query_instance.query)
+        query_hg = text_to_hypergraph(query_instance.query, is_query=True)
         query_hg.save(str(query_path))
     
     # 构建data超图
@@ -143,8 +143,8 @@ def build_hypergraph_for_query_instance(
     return str(instance_dir.resolve())
 
 def test_build_hypergraph_for_query_instance(query_instance: QueryInstance) -> tuple[LocalHypergraph, List[LocalHypergraph]]:
-    query_hg = text_to_hypergraph(query_instance.query)
-    data_list = [text_to_hypergraph(doc_text) for doc_text in query_instance.data]
+    query_hg = text_to_hypergraph(query_instance.query, is_query=True)
+    data_list = [text_to_hypergraph(doc_text, is_query=False) for doc_text in query_instance.data]
     return query_hg, data_list
 
 def build_hypergraph_batch(

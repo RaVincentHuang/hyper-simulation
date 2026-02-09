@@ -2,9 +2,9 @@ import time
 from typing import Dict, List, Set, Tuple
 from hyper_simulation.hypergraph.hypergraph import Hypergraph as LocalHypergraph, Vertex
 from simulation import Hypergraph as SimHypergraph, Hyperedge as SimHyperedge, Node, Delta, DMatch
-from hyper_simulation.component.nli import get_nli_labels_batch
+from hyper_simulation.component.nli import get_nli_labels_batch, get_nli_label
 from hyper_simulation.component.semantic_cluster import get_semantic_cluster_pairs, get_d_match
-from hyper_simulation.hypergraph.dependency import Pos
+from hyper_simulation.hypergraph.dependency import Pos, Entity
 import warnings
 from tqdm import tqdm
 from hyper_simulation.utils.log import getLogger
@@ -40,13 +40,56 @@ def convert_local_to_sim(
     
     return sim_hg, node_text, sim_id_to_vertex, node_to_edges, vertex_to_sim_id
 
+def _is_wh_question_word(text: str) -> bool:
+    return text.strip().lower() in {"who", "whom", "whose", "what", "when", "where", "why", "how", "which"}
+
+def denial_comment(u: Vertex, v: Vertex) -> bool:
+    """
+    论文定义: ¬(⟦u⟧ ≉ ⟦v⟧)
+    返回 True 表示 u 和 v 非冲突 (non-conflicting)，可以匹配
+    """
+    ut = u.text().strip()
+    vt = v.text().strip()
+    
+    # 1. 空文本检查
+    if not ut or not vt:
+        return False
+    
+    # 2. 疑问词特殊处理
+    if _is_wh_question_word(ut):
+        wh_key = ut.lower()
+        if wh_key in {"who", "whom", "whose"}:
+            return v.ent_range(Entity.PERSON)
+        elif wh_key == "when":
+            return v.ent_range(Entity.DATE)
+        elif wh_key == "where":
+            return v.ent_range(Entity.GPE)
+        elif wh_key in {"what", "which"}:
+            return (v.ent_range(Entity.PERSON) or 
+                    v.ent_range(Entity.DATE) or 
+                    v.ent_range(Entity.GPE) or
+                    v.pos_range(Pos.NOUN) or 
+                    v.pos_range(Pos.PROPN))
+        elif wh_key in {"why", "how"}:
+            return not v.pos_equal(Pos.PUNCT) and vt
+        return False
+    
+    # 3. 同类型实体豁免
+    if ((u.ent_range(Entity.PERSON) and v.ent_range(Entity.PERSON)) or
+        (u.ent_range(Entity.DATE) and v.ent_range(Entity.DATE)) or
+        (u.ent_range(Entity.GPE) and v.ent_range(Entity.GPE))):
+        return True
+    
+    # 4. NLI 矛盾检测
+    label = get_nli_label(ut, vt)
+    return label != "contradiction"
+
 def compute_allowed_pairs(
     query_vertices: Dict[int, Vertex],
     data_vertices: Dict[int, Vertex]
 ) -> Set[Tuple[int, int]]:
     """
-    宽松语义允许性判定：仅排除 contradiction
-    理论依据：type_same 应定义为“语义不冲突”，而非“语义等价”
+    批量计算允许的顶点对（基于 denial_comment）
     """
     logger = getLogger("denial_comment")
     
@@ -55,57 +98,42 @@ def compute_allowed_pairs(
             logger.info("Empty query or data vertices. Returning empty allowed set.")
         return set()
 
-    # 构建所有 (q_id, d_id) 对及其文本，避免 key 冲突
-    pairs_list: List[Tuple[int, int, Vertex, Vertex]] = []
-    text_pairs: List[Tuple[str, str]] = []
-
-    for q_id, q_vertex in query_vertices.items():
-        for d_id, d_vertex in data_vertices.items():
-            pairs_list.append((q_id, d_id, q_vertex, d_vertex))
-            text_pairs.append((q_vertex.text(), d_vertex.text()))
-
-    labels = get_nli_labels_batch(text_pairs)
-
     allowed: Set[Tuple[int, int]] = set()
     allowed_logs: List[Tuple[int, int, str, str]] = []
     contradicted_logs: List[Tuple[int, int, str, str]] = []
 
-    for (q_id, d_id, q_v, d_v), label in zip(pairs_list, labels):
-        qt, dt = q_v.text(), d_v.text()
-        if label != "contradiction":
-            allowed.add((q_id, d_id))
-            allowed_logs.append((q_id, d_id, qt, dt))
-        else:
-            contradicted_logs.append((q_id, d_id, qt, dt))
+    for q_id, q_vertex in query_vertices.items():
+        for d_id, d_vertex in data_vertices.items():
+            if denial_comment(q_vertex, d_vertex):
+                allowed.add((q_id, d_id))
+                allowed_logs.append((q_id, d_id, q_vertex.text(), d_vertex.text()))
+            else:
+                contradicted_logs.append((q_id, d_id, q_vertex.text(), d_vertex.text()))
 
-    # === 全量日志输出（无任何截断）===
+    # === 全量日志输出（无截断）===
     if logger is not None:
-        total = len(pairs_list)
+        total = len(query_vertices) * len(data_vertices)
         logger.info(f"Total Q-D pairs processed: {total}")
         logger.info(f"Allowed pairs count: {len(allowed_logs)}")
         logger.info(f"Contradicted pairs count: {len(contradicted_logs)}")
 
-        # Log EVERY allowed pair
         if allowed_logs:
             logger.info("=== BEGIN ALLOWED PAIRS ===")
             for idx, (q_id, d_id, qt, dt) in enumerate(allowed_logs, start=1):
-                # 不截断文本，保留完整内容（便于精确比对）
                 logger.info(f"[ALLOWED {idx}] Q{q_id} ⇨ D{d_id} | '{qt}' vs '{dt}'")
             logger.info("=== END ALLOWED PAIRS ===")
         else:
             logger.info("No allowed pairs.")
 
-        # Log EVERY contradicted pair with explicit reason
         if contradicted_logs:
             logger.info("=== BEGIN CONTRADICTED PAIRS ===")
             for idx, (q_id, d_id, qt, dt) in enumerate(contradicted_logs, start=1):
-                logger.info(f"[CONTRADICTED {idx}] Q{q_id} ⇏ D{d_id} | '{qt}' vs '{dt}' (reason: NLI=contradiction)")
+                logger.info(f"[CONTRADICTED {idx}] Q{q_id} ⇏ D{d_id} | '{qt}' vs '{dt}'")
             logger.info("=== END CONTRADICTED PAIRS ===")
         else:
             logger.info("No contradicted pairs.")
 
     return allowed
-
 def build_delta_and_dmatch(
     query: SimHypergraph,
     data: SimHypergraph,
@@ -138,7 +166,7 @@ def build_delta_and_dmatch(
     # Step 1: 多节点语义簇（结构化匹配，带异常隔离）
     cluster_count = 0
     # === 阶段1：记录原始结果（来自 get_semantic_cluster_pairs）===
-    raw_pairs = list(get_semantic_cluster_pairs(query_local_hg, data_local_hg, sc_logger))
+    raw_pairs = get_semantic_cluster_pairs(query_local_hg, data_local_hg, allowed_pairs, vertex_to_sim_id_q, vertex_to_sim_id_d, max_hops=2, cluster_sim_threshold=0.4, logger=sc_logger)
     sc_logger.info(f"语义簇生成完成: 共 {len(raw_pairs)} 个原始簇对")
     # === 阶段2：处理并记录过滤后结果 ===
     cluster_count = 0
@@ -202,7 +230,7 @@ def build_delta_and_dmatch(
         try:
             matches = {
                 (vertex_to_sim_id_q[vq], vertex_to_sim_id_d[vd])
-                for vq, vd, _ in get_d_match(sc_q, sc_d, dmatch_threshold)
+                for vq, vd, _ in get_d_match(sc_q, sc_d, dmatch_threshold, force_include=(q_vertex, d_vertex))
                 if vq in vertex_to_sim_id_q and vd in vertex_to_sim_id_d
             }
         except (AssertionError, AttributeError, IndexError) as e:
