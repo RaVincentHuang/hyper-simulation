@@ -97,24 +97,56 @@ def _build_coref_span_map(doc: Doc) -> dict[tuple[int, int], str]:
     return span_map
 
 def _calc_same_tokens(doc: Doc, correfs: set[str]) -> dict[str, list[tuple[int, int]]]:
-    token_map: dict[str, list[tuple[int, int]]] = {}
-    # calc the that doc[i:j].text == doc[k:l].text, save all (i, j) (k, l) in token_map[doc[i:j].text]
-    # print(f"Correfs: {correfs}")
+    token_map: dict[str, set[tuple[int, int]]] = {}
     resolved_span_map = _build_coref_span_map(doc)
-    # print(f"Resolved span map: {resolved_span_map}")
-    for i in range(len(doc)):
-        for j in range(i + 1, len(doc) + 1):
-            span = doc[i:j]
-            span_text = resolved_span_map.get((span.start, span.end), span.text)
-            if len(correfs) > 0 and span_text not in correfs:
+    n = len(doc)
+
+    for i in range(n):
+        for k in range(i + 1, n):
+            # longest common span starting at i and k
+            max_len = 0
+            while i + max_len < n and k + max_len < n:
+                if doc[i + max_len].text != doc[k + max_len].text:
+                    break
+                max_len += 1
+            if max_len <= 1:
                 continue
-            token_map.setdefault(span_text, []).append((span.start, span.end))
-            
-    # if j = i + 1, or len(token_map[span_text]) == 1, remove it
-    # print(f"Token map: {token_map}")
-    token_map = {k: v for k, v in token_map.items() if len(v) > 1 and (v[0][1] - v[0][0]) > 1}
-    # print(f"Token map after filter: {token_map}")
-    return token_map
+
+            # trim edge SPACE/PUNCT tokens from both sides
+            left_trim = 0
+            right_trim = 0
+            while left_trim < max_len and (doc[i + left_trim].pos_ in {"SPACE", "PUNCT"} or doc[k + left_trim].pos_ in {"SPACE", "PUNCT"}):
+                left_trim += 1
+            while right_trim < max_len - left_trim and (doc[i + max_len - 1 - right_trim].pos_ in {"SPACE", "PUNCT"} or doc[k + max_len - 1 - right_trim].pos_ in {"SPACE", "PUNCT"}):
+                right_trim += 1
+
+            span_len = max_len - left_trim - right_trim
+            if span_len <= 1:
+                continue
+
+            start_i = i + left_trim
+            end_i = start_i + span_len
+            start_k = k + left_trim
+            end_k = start_k + span_len
+
+            span_i = doc[start_i:end_i]
+            span_k = doc[start_k:end_k]
+            span_text_i = resolved_span_map.get((span_i.start, span_i.end), span_i.text)
+            span_text_k = resolved_span_map.get((span_k.start, span_k.end), span_k.text)
+            if span_text_i != span_text_k:
+                continue
+            if len(correfs) > 0 and span_text_i not in correfs:
+                continue
+
+            token_map.setdefault(span_text_i, set()).add((span_i.start, span_i.end))
+            token_map.setdefault(span_text_i, set()).add((span_k.start, span_k.end))
+
+    token_map_filtered: dict[str, list[tuple[int, int]]] = {}
+    for text, positions in token_map.items():
+        pos_list = sorted(positions)
+        if len(pos_list) > 1 and (pos_list[0][1] - pos_list[0][0]) > 1:
+            token_map_filtered[text] = pos_list
+    return token_map_filtered
 
 
 def _calc_bigram_likelihood_scores(doc: Doc) -> dict[tuple[str, str], float]:
@@ -172,9 +204,11 @@ def combine(doc: Doc, correfs: set[str]=set(), is_query: bool = False) -> list[S
                 continue
             spans_to_merge.append(span)
             ent_token_idxs.update(range(span.start, span.end))
-    
+            
     # Entities
     for ent in doc.ents:
+        if ent.label_ in {"ORDINAL", "CARDINAL"} and len(ent) == 1:
+            continue
         if ent_token_idxs.intersection(range(ent.start, ent.end)):
             continue
         # print(f"Merging entity span: {ent.text}")
@@ -182,7 +216,8 @@ def combine(doc: Doc, correfs: set[str]=set(), is_query: bool = False) -> list[S
         ent_token_idxs.update(range(ent.start, ent.end))
 
     # Noun phrases
-    not_naive_dets = {"all", "both", "every", "each", "either", "neither"}
+    not_naive_dets = {"all", "both", "every", "each", "either", "neither", "whichever", "whatever"}
+    wh_dets = {"what", "which", "whose", "whichever", "whatever"}
     
     # for chunk in doc.noun_chunks:
     #     span_start = chunk.start
@@ -219,19 +254,22 @@ def combine(doc: Doc, correfs: set[str]=set(), is_query: bool = False) -> list[S
         if token.pos_ == "NOUN":
             span_start = token.i
             span_end = token.i + 1
-            
             for left in reversed(list(token.lefts)):
+                # print(f"Left token: {left}, dep: {left.dep_}, token: {token}: {left.i != span_start - 1}")
                 if left.i != span_start - 1:
                     break
                 # {"advmod", "neg", "nummod", "quantmod", "npadvmod", "compound"} or {"advmod", "neg", "nummod", "quantmod", "npadvmod"}
                 if left.dep_ == "amod":
-                    pair = (left.text.lower(), token.text.lower())
+                    pair = (left.text.lower(), left.head.text.lower())
                     score = bigram_lr_scores.get(pair, 0.0)
+                    print(f"Bigram LR score for {pair}: {score} - {score >= lr_threshold}")
                     if score >= lr_threshold:
                         span_start = left.i
                     else:
                         break
                 elif left.dep_ in {"advmod", "neg", "nummod", "quantmod", "npadvmod", "compound"} or (left.dep_ == "det" and left.text.lower() not in not_naive_dets):
+                    if is_query and left.dep_ == "det" and left.text.lower() in wh_dets:
+                        break
                     span_start = left.i
                 else:
                     break
@@ -247,7 +285,7 @@ def combine(doc: Doc, correfs: set[str]=set(), is_query: bool = False) -> list[S
             if span_start + 1 == span_end or (span_end - span_start) > max_span_tokens:
                 continue
             span = doc[span_start:span_end]
-            # print(f"Considering noun phrase span: {span}")
+            # print(f"Considering noun phrase span: {span}: {[doc[token] for token in noun_token_idxs.intersection(range(span.start, span.end))]}")
             
             if noun_token_idxs.intersection(range(span.start, span.end)):
                 for start, end in spans_to_merge_on_noun.keys():
@@ -307,7 +345,7 @@ def combine(doc: Doc, correfs: set[str]=set(), is_query: bool = False) -> list[S
 
     # Adjectival phrases
     for token in doc:
-        if token.pos_ == "ADJ" and token.dep_ in {"amod"}:
+        if token.pos_ == "ADJ" and token.dep_ in {"amod", "acomp"}: # WARN: acomp may meet bad cases
             span_start = token.i
             span_end = token.i + 1
 
@@ -333,6 +371,37 @@ def combine(doc: Doc, correfs: set[str]=set(), is_query: bool = False) -> list[S
                 continue
             
             # print("Adjectival phrase span: ", span)
+            spans_to_merge.append(span)
+            ent_token_idxs.update(range(span.start, span.end))
+    
+    # Adverbs phrases
+    for token in doc:
+        if token.pos_ == "ADV" and token.dep_ in {"advmod"}:
+            span_start = token.i
+            span_end = token.i + 1
+
+            for left in reversed(list(token.lefts)):
+                if left.i != span_start - 1:
+                    break
+                if left.dep_ in {"advmod", "neg"}:
+                    span_start = left.i
+                else:
+                    break
+
+            for right in token.rights:
+                if right.i != span_end:
+                    break
+                if right.dep_ in {"advmod", "prep", "conj", "cc", "det"}:
+                    span_end = right.i + 1
+                else:
+                    break
+            if span_start + 1 == span_end:
+                continue 
+            span = doc[span_start:span_end]
+            if ent_token_idxs.intersection(range(span.start, span.end)):
+                continue
+            
+            # print("Adverb phrase span: ", span)
             spans_to_merge.append(span)
             ent_token_idxs.update(range(span.start, span.end))
 

@@ -81,7 +81,7 @@ def _parse_steps(steps: str) -> Set[int]:
 
 
 def debug_text_to_hypergraph(
-    text: str, output_dir: str = "logs/dep_debug", steps: Iterable[int] | None = None
+    text: str, output_dir: str = "logs/dep_debug", steps: Iterable[int] | None = None, is_query: bool = False
 ) -> LocalHypergraph:
     output_base = Path(output_dir)
     output_base.mkdir(parents=True, exist_ok=True)
@@ -100,7 +100,7 @@ def debug_text_to_hypergraph(
 
     # combine + retokenize
     correfs = calc_correfs_str(doc) if hasattr(doc._, "coref_clusters") else set()
-    spans_to_merge = combine(doc, correfs)
+    spans_to_merge = combine(doc, correfs, is_query=is_query)
     with doc.retokenize() as retokenizer:
         for span in spans_to_merge:
             retokenizer.merge(span)
@@ -113,9 +113,11 @@ def debug_text_to_hypergraph(
         )
 
     # 3) 指代消解 + vertices
+    print(f"Coreference clusters: {getattr(doc._, 'coref_clusters', None)}")
+    print(f"Resolved Text: {getattr(doc._, 'resolved_text', None)}")
     nodes, roots = Node.from_doc(doc)
     local_doc = LocalDoc(doc)
-    dep = Dependency(nodes, roots, local_doc)
+    dep = Dependency(nodes, roots, local_doc, is_query=is_query)
     vertices, rels, id_map = (
         dep.solve_conjunctions()
         .mark_pronoun_antecedents()
@@ -126,6 +128,8 @@ def debug_text_to_hypergraph(
     )
     if 3 in steps_set:
         print("\n[Step 3 - Vertices] (after coreference & vertex construction)")
+        for k, v in id_map.items():
+            print(f"    Node '{k.text}' in [{v}]")
         vertex_objs = Vertex.from_nodes(vertices, id_map)
         for vertex in sorted(vertex_objs, key=lambda v: v.id):
             print(format_vertex(vertex))
@@ -146,7 +150,8 @@ def debug_text_to_hypergraph(
 
 
 if __name__ == "__main__":
-    text = "What is the title of the 13th episode of the American fantasy drama television series that premiered on October 23, 2011, on ABC?"
+    text = """Can you help me?
+"""
     
     parser = ArgumentParser(description="Debug spaCy dependency pipeline steps.")
     parser.add_argument("--output-dir", type=str, default="logs/dep_debug")
@@ -158,4 +163,4 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     steps = _parse_steps(args.steps)
-    debug_text_to_hypergraph(text, output_dir=args.output_dir, steps=steps)
+    debug_text_to_hypergraph(text, output_dir=args.output_dir, steps=steps, is_query=True)

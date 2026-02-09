@@ -3,6 +3,17 @@ from thefuzz import process
 
 from hyper_simulation.hypergraph.abstraction import TokenAbstractor
 
+class QueryType(Enum):
+    BELONGS = 1
+    WHAT = 2
+    WHICH = 3
+    PERSON = 4
+    ATTRIBUTE = 5
+    NUMBER = 6
+    TIME = 7
+    LOCATION = 8
+    REASON = 9
+
 class Pos(IntEnum):
     ADP = 1
     ADV = 2
@@ -198,6 +209,10 @@ class Node:
         self.sentence_end: int = -1
         self.index = index
         
+        self.is_query = False
+        self.query_type: QueryType | None = None
+        self.query_attribute: str | None = None
+        
         self.is_vertex = False
         self.former_nodes: list[Node] = []
         
@@ -238,6 +253,7 @@ class Node:
     @staticmethod
     def from_doc(doc) -> tuple[list['Node'], list['Node']]:
         nodes: list[Node] = []
+        node_map: dict[int, Node] = {}
         def _coref_primary_rank(node: 'Node') -> tuple[int, int, int, int]:
             """Rank nodes for primary selection: higher score = better candidate.
             Priority: VERB/AUX > NOUN/PROPN > ADJ > NUM > others > PRON"""
@@ -261,6 +277,8 @@ class Node:
         for token in doc:
             # print(f"Token: '{token.text}', Lemma: '{token.lemma_}', Dep: {token.dep_} ['{token.head.text}'], Ent: {token.ent_type_}, POS: {token.pos_}, TAG: {token.tag_}")
             pos = token.pos_
+            if pos in {"SPACE", "PUNCT"}:
+                continue
             tag = "WILDCARD" if token.tag_ in wildcard_tags else token.tag_
             dep = token.dep_
             ent = token.ent_type_ if token.ent_type_ else "NOT_ENTITY"
@@ -277,16 +295,24 @@ class Node:
             )
             node.set_sentence(sentence, token.left_edge.i, token.right_edge.i + 1)
             # print(f"Set sentence for Node '{node.text}' :> {token.left_edge.text} ({node.sentence_start}), {token.right_edge.text} ({node.sentence_end}): \n\t'{node.sentence}'")
+            node_map[token.i] = node
             nodes.append(node)
-        
-        for token, node in zip(doc, nodes):
-            if token.head.i != token.i:
-                node.head = nodes[token.head.i]
-                nodes[token.head.i].children.append(node)
+
+        for token in doc:
+            node = node_map.get(token.i)
+            if not node:
+                continue
+            if token.head.i != token.i and token.head.i in node_map:
+                node.head = node_map[token.head.i]
+                node_map[token.head.i].children.append(node)
             for left in token.lefts:
-                node.lefts.append(nodes[left.i])
+                left_node = node_map.get(left.i)
+                if left_node:
+                    node.lefts.append(left_node)
             for right in token.rights:
-                node.rights.append(nodes[right.i])
+                right_node = node_map.get(right.i)
+                if right_node:
+                    node.rights.append(right_node)
         
         # 向node里面标记指代
         if doc._.coref_clusters is not None and doc._.resolved_text is not None:
@@ -314,7 +340,9 @@ class Node:
                         token_end = token.idx + len(token.text)
                         if token_end <= start or token_start >= end:
                             continue
-                        node = nodes[token.i]
+                        node = node_map.get(token.i)
+                        if not node:
+                            continue
                         if node not in cluster_token_set:
                             cluster_tokens.append(node)
                             cluster_token_set.add(node)
@@ -409,6 +437,7 @@ class Node:
                             node.coref_primary = primary_node
                             if node.pos == Pos.PRON and not node.pronoun_antecedent:
                                 node.pronoun_antecedent = primary_node
+                                # print(f"【*】set pronoun antecedent for '{node.text}' --> '{primary_node.text}'")
                         elif node.pos == Pos.PRON and not node.pronoun_antecedent:
                             node.pronoun_antecedent = None
                     
@@ -425,13 +454,19 @@ class Node:
                     cluster_id += 1
             # print(f"\n[Coreference Processing] Completed. Total clusters processed: {cluster_id}\n")
         
+        # for node in nodes:
+        #     if node.coref_primary:
+        #         print(f"【&】Node '{node.text}' coref primary: '{node.coref_primary.text}'")
         roots = [node for node in nodes if node.head is None]
         for root in roots:
             assert root.dep == Dep.ROOT or root.dep == Dep.dep, f"Root node dep should be ROOT or _SP, got {root.dep.name}"
         
         # 预计算 WordNet 抽象信息
         abstractor = TokenAbstractor()
-        for token, node in zip(doc, nodes):
+        for token in doc:
+            node = node_map.get(token.i)
+            if not node:
+                continue
             node.wn_abstraction = abstractor.get_abstraction(token, doc)
             node.wn_hypernym_path = abstractor.get_abstraction_path(token, doc)
         
@@ -534,7 +569,7 @@ class LocalDoc:
             return self.tokens[index]
 
 class Dependency:
-    def __init__(self, nodes: list[Node], roots: list[Node], doc: LocalDoc) -> None:
+    def __init__(self, nodes: list[Node], roots: list[Node], doc: LocalDoc, is_query: bool=False) -> None:
         self.nodes = nodes
         self.roots = roots
         self.doc = doc
@@ -543,6 +578,7 @@ class Dependency:
         self.links_pred: dict[Node, Node] = {}
         self.relationship_sentences: dict[Node, str] = {}
         self.correfence_map: dict[Node, Node] = {}
+        self.is_query = is_query
     
     def _fixup_lefts_rights_sentences(self, node: Node) -> None:
         node.children.sort(key=lambda n: n.index)
@@ -568,6 +604,16 @@ class Dependency:
     # e.g., in "Alice and Bob went to the store", "Bob" will get the same children as "Alice"
     # Execute this pass by Level-Order Traversal
     def solve_conjunctions(self):
+        # Firstly, solve query for det wh-words
+        if self.is_query:
+            wh_dets = {"what", "which"}
+            for node in self.nodes:
+                if node.dep == Dep.det and node.text.lower() in wh_dets and node.head:
+                    node.head.is_query = True
+                    for child in node.head.children:
+                        if child.dep == Dep.conj and child.head == node.head:
+                            child.is_query = True
+        
         # print("Solving conjunctions...\n")
         queue = self.roots.copy()
         next_level: list[Node] = []
@@ -587,8 +633,6 @@ class Dependency:
                 node.children.remove(child)
                 if node.head:
                     node.head.children.append(child)
-                
-            
             if not queue:
                 queue = next_level
                 next_level = []
@@ -601,15 +645,17 @@ class Dependency:
                 self._fixup_lefts_rights_sentences(node.head)
         
         self.roots = [node for node in self.nodes if node.head is None]
-        # print("Conjunctions solved. Resulting Nodes:")
-        # for node in self.nodes:
-        #     print(f"{node}")
+        print("Conjunctions solved. Resulting Nodes:")
+        for node in self.nodes:
+            print(f"{node}, head is '{node.head.text if node.head else 'ROOT'}'")
         return self
     
     # PASS 2: Mark all the antecedent of pronouns.
     # check all the `relcl` dependencies, uses the relative clause to find the antecedent of pronouns.
     # We split all `relcl` conditions to two dependencies tree.
     def mark_pronoun_antecedents(self):
+        
+        # relcl: relative clause
         for node in self.nodes:
             if node.dep != Dep.relcl or not node.head:
                 continue
@@ -617,12 +663,41 @@ class Dependency:
             for child in node.children:
                 if child.pos == Pos.PRON:
                     child.pronoun_antecedent = antecedent
+                    # print(f"【*】set pronoun antecedent for '{child.text}' --> '{antecedent.text}' via relcl")
             
             node.head.children.remove(node)
             self._fixup_lefts_rights_sentences(node.head)
 
             node.dep = Dep.ROOT
             node.head = None
+            
+        # ccomp: We solve formal complement clauses to find pronoun antecedents
+        # For formal object patterns like "find it + ccomp", set pronoun antecedent to the ccomp clause head.
+        if not self.is_query:
+            return self
+        
+        for node in self.nodes:
+            if node.dep != Dep.ccomp or not node.head:
+                continue
+            head = node.head
+            # head and node all are verbs/auxiliary verbs
+            # find head and node's nsubj & PRON children
+            for child in head.children:
+                if child.dep not in {Dep.nsubj, Dep.nsubjpass}:
+                    continue
+                if child.pos != Pos.PRON:
+                    continue
+                for ccomp_child in node.children:
+                    if (ccomp_child.dep in {Dep.nsubj, Dep.nsubjpass}) and (ccomp_child.pos in {Pos.PRON}):
+                        child.pronoun_antecedent = ccomp_child
+                        print(f"【*】set pronoun antecedent for '{child.text}' --> '{ccomp_child.text}' via ccomp")
+                        
+        # TODO: solve the acl dependencies if necessary
+        # e.g., I can not believe the fact that consistency is maintained.
+        
+        # TODO: solve the ccomp dependencies if necessary
+        # e.g., It is true that simulation works.
+        
         return self
     
     # PASS 3: Mark the prefixes for prepositions and agents
@@ -678,10 +753,75 @@ class Dependency:
             and node.correfence_id in correfence_primary_map
         }
 
-        qualifying_pos = {Pos.NOUN, Pos.PROPN, Pos.VERB, Pos.AUX, Pos.ADJ, Pos.NUM, Pos.PRON}
+        pronoun_antecedent_map: dict[Node, Node] = {}
+        for node in self.nodes:
+            if node.pos == Pos.PRON and node.pronoun_antecedent:
+                antecedent = node.pronoun_antecedent
+                while antecedent.coref_primary and antecedent != antecedent.coref_primary:
+                    antecedent = antecedent.coref_primary
+                pronoun_antecedent_map[node] = antecedent
+        for node, antecedent in pronoun_antecedent_map.items():
+            if node not in self.correfence_map:
+                self.correfence_map[node] = antecedent
+            if not node.coref_primary:
+                node.coref_primary = antecedent
+
+        qualifying_pos = {Pos.NOUN, Pos.PROPN, Pos.VERB, Pos.AUX, Pos.ADJ, Pos.NUM, Pos.PRON, Pos.ADV}
         self.vertexes = []
         for node in self.nodes:
             node.is_vertex = False
+            if node.pos in {Pos.SPACE, Pos.PUNCT}:
+                continue
+            if self.is_query and node.pos == Pos.AUX and node.dep == Dep.aux and node.head and node.head.pos == Pos.VERB:
+                continue
+            if self.is_query and node.pos == Pos.PRON and node.dep == Dep.det:
+                continue
+            if self.is_query:
+                normalized_how = node.text.lower().replace("-", " ").strip(" \t\n\r\f\v.,?!;:")
+                normalized_how = " ".join(normalized_how.split())
+                if normalized_how.startswith("how"):
+                    parts = normalized_how.split()
+                    how_tail = " ".join(parts[1:]).strip() if len(parts) > 1 else ""
+                    how_quantifiers = {"many", "much", "few", "little", "long", "often", "far"}
+                    if how_tail in how_quantifiers:
+                        node.is_query = True
+                        node.query_type = QueryType.NUMBER
+                    elif node.pos in {Pos.ADJ, Pos.ADV}:
+                        node.is_query = True
+                        node.query_type = QueryType.ATTRIBUTE
+                        node.query_attribute = how_tail or None
+            if self.is_query and node.pos == Pos.PRON:
+                wh_pronouns = {"what", "which", "who", "whom", "whose"}
+                if node.text.lower() in wh_pronouns:
+                    node.is_query = True
+                    pronoun = node.text.lower()
+                    if pronoun == "which":
+                        node.query_type = QueryType.WHICH
+                    elif pronoun == "what":
+                        node.query_type = QueryType.WHAT
+                    elif pronoun in {"who", "whom"}:
+                        node.query_type = QueryType.PERSON
+
+            if self.is_query and node.pos == Pos.ADV:
+                wh_adverbs = {"when", "where", "why"}
+                if node.text.lower() in wh_adverbs:
+                    node.is_query = True
+                    adverb = node.text.lower()
+                    if adverb == "when":
+                        node.query_type = QueryType.TIME
+                    elif adverb == "where":
+                        node.query_type = QueryType.LOCATION
+                    elif adverb == "why":
+                        node.query_type = QueryType.REASON
+
+            if self.is_query and node.pos == Pos.DET and node.dep == Dep.poss and node.text.lower() == "whose":
+                node.is_vertex = True
+                node.is_query = True
+                node.query_type = QueryType.BELONGS
+                self.vertexes.append(node)
+                continue
+            # if node.pos == Pos.PRON and node.pronoun_antecedent and not node.is_query:
+            #     continue
             if (
                 node.head is None
                 or node.ent != Entity.NOT_ENTITY
@@ -724,7 +864,10 @@ class Dependency:
     # Then we use the `thefuzz` to get all vertex a id, and calculate a map.
     def calc_relationships(self) -> tuple[list[Node], list[Relationship], dict[Node, int]]:
         def _match_same(best_match, score, node: Node, choices_map: dict[str, int], pos_map: dict[int, Pos]) -> bool:
-            if score >= 90 and (pos_map[choices_map[best_match]] == node.pos):
+            # if best_match's POS is ​​PRON​​ or node's POS is ​​PRON​​, we do not consider it a match
+            if pos_map[choices_map[best_match]] == Pos.PRON or node.pos == Pos.PRON:
+                return False
+            elif score >= 90 and (pos_map[choices_map[best_match]] == node.pos):
                 return True
             elif score == 100:
                 return True
@@ -785,8 +928,11 @@ class Dependency:
                     vertex_id_map[node] = cnt
                     pos_map[cnt] = node.pos
                     cnt += 1
+        print(f"【……】Deferred coreference nodes to process: {len(deferred_coref_nodes)}")
         for node in deferred_coref_nodes:
-            primary = node.coref_primary
+            print(f"    - Node '{node.text}' (resolved: '{node.resolved_text}') with coref primary '{node.coref_primary.text if node.coref_primary else 'None'}'")
+        for node in deferred_coref_nodes:
+            primary: Node | None = node.coref_primary
             if primary and primary in vertex_id_map:
                 vertex_id_map[node] = vertex_id_map[primary]
                 pos_map[vertex_id_map[node]] = primary.pos
@@ -804,6 +950,9 @@ class Dependency:
                     vertex_id_map[node] = cnt
                     pos_map[cnt] = node.pos
                     cnt += 1
-
+        print(f"【……】Deferred coreference nodes processed.")
+        print("Final Vertex ID Map:")
+        for node, vid in vertex_id_map.items():
+            print(f"    - Node '{node.text}' (resolved: '{node.resolved_text}') --> Vertex ID {vid}")
         return self.vertexes, relationships, vertex_id_map
 

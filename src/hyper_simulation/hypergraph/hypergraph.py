@@ -109,21 +109,11 @@ class Vertex:
         elif wn_result is True:
             logger.debug(f"✓ is_domain=True (WordNet): '{self.text()}' ↔ '{other.text()}'")
             return True
-
-
-        # # 3. Wikidata
-        # wd_result = self._wikidata_domain_match(other)
-        # if wd_result is not None:
-        #     return wd_result
-
-        # Step 3: POS fallback（最低优先级）
-        pos_matched = any(self.pos_range(p) for p in other.poses)
-        if pos_matched:
-            logger.debug(f"✓ is_domain=True (POS fallback): '{self.text()}'[{self.poses}] ↔ '{other.text()}'[{other.poses}]")
-        else:
-            logger.debug(f"✗ is_domain=False (POS mismatch): '{self.text()}'[{self.poses}] vs '{other.text()}'[{other.poses}]")
-        return pos_matched
+        return False  # 无法判断
     
+    def is_query(self) -> bool:
+        return any(n.is_query for n in self.nodes)
+
     def _wordnet_domain_match(self, other: 'Vertex') -> bool | None:
         """WordNet 抽象域/上位词匹配"""
         self_abs = {n.wn_abstraction for n in self.nodes if getattr(n, 'wn_abstraction', None)}
@@ -197,6 +187,8 @@ class Vertex:
     def text(self) -> str:
         if not self.nodes:
             return ""
+        if self.is_query():
+            return f"?{Vertex.resolved_text(self.nodes[0])}"
         return Vertex.resolved_text(self.nodes[0])
     
     @staticmethod
@@ -245,8 +237,8 @@ class Hyperedge:
 
     def text(self) -> str:
         """Get a cleaned description using resolved node texts within the sentence range."""
-        sentence = self.full_desc or ""
-        sentence_by_range = self.desc or ""
+        sentence = self.desc or ""
+        sentence_by_range = self.full_desc or ""
         # print(f"Hyperedge.text(): sentence_by_range='{sentence_by_range}' in sentence='{sentence}'")
         # Helper to extract prefix/suffix
         def calc_prefix_suffix(range_text: str, full_sentence: str) -> tuple[str, str]:
