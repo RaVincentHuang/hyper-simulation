@@ -3,6 +3,7 @@ from tqdm import tqdm
 from typing import List, Dict, Any
 from hyper_simulation.query_instance import QueryInstance
 from hyper_simulation.component.build_hypergraph import test_build_hypergraph_for_query_instance
+from hyper_simulation.utils.clean import clean_text_for_spacy
 from pathlib import Path
 import json
 import jsonlines
@@ -611,7 +612,7 @@ def run_hypergraph_build(
                 query_instance = QueryInstance(
                     query=item['question'],
                     data=[
-                        f"{title}\n" + "\n".join(sentences)
+                        f"{title}.\n" + "\n".join(sentences)
                         for title, sentences in item['context']
                     ],
                     fixed_data=[],
@@ -653,7 +654,7 @@ def run_hypergraph_build(
                 query_instance = QueryInstance(
                     query=item["question"],
                     data=[
-                        f"{title}\n" + "\n".join(sentences)
+                        f"{title}.\n" + "\n".join(sentences)
                         for title, sentences in item["context"]
                     ],
                     fixed_data=[],
@@ -682,7 +683,7 @@ def run_hypergraph_build(
                 query_instance = QueryInstance(
                     query=item["question"],
                     data=[
-                        f"{title}\n" + "\n".join(sentences)
+                        f"{title}.\n" + "\n".join(sentences)
                         for title, sentences in item["context"]
                     ],
                     fixed_data=[],
@@ -712,7 +713,7 @@ def run_hypergraph_build(
                 query_instance = QueryInstance(
                     query=item["question"],
                     data=[
-                        f"{title}\n" + "\n".join(sentences)
+                        f"{title}.\n" + "\n".join(sentences)
                         for title, sentences in item["context"]
                     ],
                     fixed_data=[],
@@ -742,7 +743,7 @@ def run_hypergraph_build(
                 query_instance = QueryInstance(
                     query=item["question"],
                     data=[
-                        f"{title}\n" + "\n".join(sentences)
+                        f"{title}.\n" + "\n".join(sentences)
                         for title, sentences in item["context"]
                     ],
                     fixed_data=[],
@@ -752,6 +753,11 @@ def run_hypergraph_build(
                 query_instances.append(query_instance)
         else:
             raise ValueError(f"Unsupported task: {task}")
+        
+        # Clean the QueryInstance for spacy processing
+        for qi in query_instances:
+            qi.query = clean_text_for_spacy(qi.query)
+            qi.data = [clean_text_for_spacy(d) for d in qi.data]
 
         for idx, qi in enumerate(query_instances):
             q, d_list = test_build_hypergraph_for_query_instance(qi)

@@ -96,6 +96,8 @@ def debug_text_to_hypergraph(
     # 1) 原始依存分析
     if 1 in steps_set:
         print_dep_tokens(doc, "Step 1 - Raw (before combine)")
+        for ent in doc.ents:
+            print(f"Entity: '{ent.text}' ({ent.label_}), id: [{ent.start}, {ent.end})")
         render_dep_html(doc, output_base / "step1_raw_dep.html", "Step 1 - Raw (before combine)")
 
     # combine + retokenize
@@ -150,7 +152,11 @@ def debug_text_to_hypergraph(
 
 
 if __name__ == "__main__":
-    text = """Can you help me?
+    text = """Dekhmeh Rawansar.
+Dekhmeye Rawansar (دخمه روانسر) is a rock-cut tomb located near the town of Ravansar (Kurdish: Rowansar), about 57 km northwest of Kermanshah, at west of Iran.
+This tomb was known to Ernst Herzfeld but he never visited it.
+The first archaeologist who visited the tomb was Massoud Golzari, an Iranian archaeologist who attributed it to Medes.
+It is re-visited and examined by Peter Calmeyer, German archaeologist (birth. 5 September 1930 in Halle, death. 22 November 1995 in Berlin) in the 1970s, who according to his observations related the tomb to the Achaemenid period.
 """
     
     parser = ArgumentParser(description="Debug spaCy dependency pipeline steps.")
@@ -163,4 +169,4 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     steps = _parse_steps(args.steps)
-    debug_text_to_hypergraph(text, output_dir=args.output_dir, steps=steps, is_query=True)
+    debug_text_to_hypergraph(text, output_dir=args.output_dir, steps=steps, is_query=False)

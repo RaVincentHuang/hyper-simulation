@@ -218,30 +218,6 @@ def combine(doc: Doc, correfs: set[str]=set(), is_query: bool = False) -> list[S
     # Noun phrases
     not_naive_dets = {"all", "both", "every", "each", "either", "neither", "whichever", "whatever"}
     wh_dets = {"what", "which", "whose", "whichever", "whatever"}
-    
-    # for chunk in doc.noun_chunks:
-    #     span_start = chunk.start
-    #     span_end = chunk.end
-    #     for left in reversed(list(chunk.lefts)):
-    #         if left.dep_ in {"amod", "advmod", "neg", "nummod", "quantmod", "npadvmod"} or (left.dep_ == "det" and left.text.lower() not in not_naive_dets):
-    #                 span_start = left.i
-    #         else:
-    #             break
-    #     for right in chunk.rights:
-    #         if right.dep_ in {"amod", "advmod", "neg", "nummod", "quantmod", "npadvmod"}:
-    #             span_end = right.i + 1
-    #         else:
-    #             break
-
-    #     if span_start + 1 == span_end:
-    #             continue 
-    #     span = doc[span_start:span_end]
-    #     print(f"Considering noun phrase span: {span}, from chunk: {chunk}")
-    #     if ent_token_idxs.intersection(range(span.start, span.end)):
-    #         continue
-        
-    #     spans_to_merge.append(span)
-    #     ent_token_idxs.update(range(span.start, span.end))
 
     # Add [`amod`, `advmod`, `neg`, `nummod`, `quantmod`, `npadvmod`] modifiers to noun phrases
     noun_token_idxs: set[int] = set()
@@ -262,7 +238,7 @@ def combine(doc: Doc, correfs: set[str]=set(), is_query: bool = False) -> list[S
                 if left.dep_ == "amod":
                     pair = (left.text.lower(), left.head.text.lower())
                     score = bigram_lr_scores.get(pair, 0.0)
-                    print(f"Bigram LR score for {pair}: {score} - {score >= lr_threshold}")
+                    # print(f"Bigram LR score for {pair}: {score} - {score >= lr_threshold}")
                     if score >= lr_threshold:
                         span_start = left.i
                     else:

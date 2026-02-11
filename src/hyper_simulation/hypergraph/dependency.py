@@ -277,8 +277,8 @@ class Node:
         for token in doc:
             # print(f"Token: '{token.text}', Lemma: '{token.lemma_}', Dep: {token.dep_} ['{token.head.text}'], Ent: {token.ent_type_}, POS: {token.pos_}, TAG: {token.tag_}")
             pos = token.pos_
-            if pos in {"SPACE", "PUNCT"}:
-                continue
+            # if pos in {"SPACE", "PUNCT"}:
+            #     continue
             tag = "WILDCARD" if token.tag_ in wildcard_tags else token.tag_
             dep = token.dep_
             ent = token.ent_type_ if token.ent_type_ else "NOT_ENTITY"
@@ -459,7 +459,7 @@ class Node:
         #         print(f"【&】Node '{node.text}' coref primary: '{node.coref_primary.text}'")
         roots = [node for node in nodes if node.head is None]
         for root in roots:
-            assert root.dep == Dep.ROOT or root.dep == Dep.dep, f"Root node dep should be ROOT or _SP, got {root.dep.name}"
+            assert root.dep == Dep.ROOT or root.dep == Dep.dep, f"Root node dep should be ROOT or _SP, got {root.dep.name}: '{root.text}'\nDOC: '{doc.text}'"
         
         # 预计算 WordNet 抽象信息
         abstractor = TokenAbstractor()
@@ -645,9 +645,9 @@ class Dependency:
                 self._fixup_lefts_rights_sentences(node.head)
         
         self.roots = [node for node in self.nodes if node.head is None]
-        print("Conjunctions solved. Resulting Nodes:")
-        for node in self.nodes:
-            print(f"{node}, head is '{node.head.text if node.head else 'ROOT'}'")
+        # print("Conjunctions solved. Resulting Nodes:")
+        # for node in self.nodes:
+        #     print(f"{node}, head is '{node.head.text if node.head else 'ROOT'}'")
         return self
     
     # PASS 2: Mark all the antecedent of pronouns.
@@ -690,7 +690,7 @@ class Dependency:
                 for ccomp_child in node.children:
                     if (ccomp_child.dep in {Dep.nsubj, Dep.nsubjpass}) and (ccomp_child.pos in {Pos.PRON}):
                         child.pronoun_antecedent = ccomp_child
-                        print(f"【*】set pronoun antecedent for '{child.text}' --> '{ccomp_child.text}' via ccomp")
+                        # print(f"【*】set pronoun antecedent for '{child.text}' --> '{ccomp_child.text}' via ccomp")
                         
         # TODO: solve the acl dependencies if necessary
         # e.g., I can not believe the fact that consistency is maintained.
@@ -770,7 +770,7 @@ class Dependency:
         self.vertexes = []
         for node in self.nodes:
             node.is_vertex = False
-            if node.pos in {Pos.SPACE, Pos.PUNCT}:
+            if node.pos in {Pos.SPACE, Pos.PUNCT} and node.ent == Entity.NOT_ENTITY:
                 continue
             if self.is_query and node.pos == Pos.AUX and node.dep == Dep.aux and node.head and node.head.pos == Pos.VERB:
                 continue
@@ -827,6 +827,8 @@ class Dependency:
                 or node.ent != Entity.NOT_ENTITY
                 or node.pos in qualifying_pos
             ):
+                if node.ent != Entity.NOT_ENTITY and node.pos in {Pos.DET, Pos.PART, Pos.PUNCT}:
+                    continue
                 node.is_vertex = True
                 self.vertexes.append(node)
         
@@ -928,9 +930,9 @@ class Dependency:
                     vertex_id_map[node] = cnt
                     pos_map[cnt] = node.pos
                     cnt += 1
-        print(f"【……】Deferred coreference nodes to process: {len(deferred_coref_nodes)}")
-        for node in deferred_coref_nodes:
-            print(f"    - Node '{node.text}' (resolved: '{node.resolved_text}') with coref primary '{node.coref_primary.text if node.coref_primary else 'None'}'")
+        # print(f"【……】Deferred coreference nodes to process: {len(deferred_coref_nodes)}")
+        # for node in deferred_coref_nodes:
+        #     print(f"    - Node '{node.text}' (resolved: '{node.resolved_text}') with coref primary '{node.coref_primary.text if node.coref_primary else 'None'}'")
         for node in deferred_coref_nodes:
             primary: Node | None = node.coref_primary
             if primary and primary in vertex_id_map:
@@ -950,9 +952,9 @@ class Dependency:
                     vertex_id_map[node] = cnt
                     pos_map[cnt] = node.pos
                     cnt += 1
-        print(f"【……】Deferred coreference nodes processed.")
-        print("Final Vertex ID Map:")
-        for node, vid in vertex_id_map.items():
-            print(f"    - Node '{node.text}' (resolved: '{node.resolved_text}') --> Vertex ID {vid}")
+        # print(f"【……】Deferred coreference nodes processed.")
+        # print("Final Vertex ID Map:")
+        # for node, vid in vertex_id_map.items():
+        #     print(f"    - Node '{node.text}' (resolved: '{node.resolved_text}') --> Vertex ID {vid}")
         return self.vertexes, relationships, vertex_id_map
 

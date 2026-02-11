@@ -550,53 +550,47 @@ def build_descendant_cluster(
     max_hops: int = 2
 ) -> 'SemanticCluster':
     """
-    构建顶点的后代超边集合
-    返回: SemanticCluster 对象
+    基于依存树构建后代簇
     """
     logger = getLogger("semantic_cluster")
-    visited_edges: Set[Hyperedge] = set()
     
-    # Step 1: 收集直接包含 vertex 的超边
-    direct_edges = [e for e in hg.hyperedges if vertex in e.vertices]
-    visited_edges.update(direct_edges)
+    # Step 1: 找到 vertex 对应的 Node（取第一个）
+    node = vertex.nodes[0] if vertex.nodes else None
+    if not node or not hasattr(node, 'children'):
+        # 退化为直接超边
+        direct_edges = [e for e in hg.hyperedges if vertex in e.vertices]
+        return SemanticCluster(direct_edges, hg.doc)
     
-    # Step 2: 收集 vertex 的所有语法后代节点（基于依存树）
-    descendant_vertices: Set[Vertex] = {vertex}
-    queue: List[Tuple[Vertex, int]] = [(vertex, 0)]
-    depth_map: Dict[Vertex, int] = {vertex: 0}
-    
-    # 构建顶点到超边的映射（优化查找）
-    vertex_to_edges: Dict[Vertex, List[Hyperedge]] = {}
-    for e in hg.hyperedges:
-        for v in e.vertices:
-            if v not in vertex_to_edges:
-                vertex_to_edges[v] = []
-            vertex_to_edges[v].append(e)
+    # Step 2: BFS 遍历依存树（max_hops 层）
+    descendant_nodes = {node}
+    queue = [(node, 0)]
     
     while queue:
-        curr_v, curr_depth = queue.pop(0)
-        if curr_depth >= max_hops:
+        curr_node, depth = queue.pop(0)
+        if depth >= max_hops:
             continue
-        
-        # 查找 curr_v 作为根的超边（即 curr_v 的直接语法子节点）
-        for e in vertex_to_edges.get(curr_v, []):
-            if e.root == curr_v:  # curr_v 是该超边的根节点
-                for child_v in e.vertices:
-                    if child_v != curr_v and child_v not in descendant_vertices:
-                        descendant_vertices.add(child_v)
-                        queue.append((child_v, curr_depth + 1))
-                        depth_map[child_v] = curr_depth + 1
+        for child in getattr(curr_node, 'children', []):
+            if child not in descendant_nodes:
+                descendant_nodes.add(child)
+                queue.append((child, depth + 1))
     
-    # Step 3: 收集包含任意后代顶点的超边
+    # Step 3: 收集包含任意后代 Node 的超边
+    visited_edges = set()
+    node_to_vertex = {}  # 构建 Node → Vertex 映射
+    for v in hg.vertices:
+        for n in v.nodes:
+            node_to_vertex[n] = v
+    
     for e in hg.hyperedges:
-        if any(v in descendant_vertices for v in e.vertices):
-            visited_edges.add(e)
+        for v in e.vertices:
+            if any(n in descendant_nodes for n in v.nodes):
+                visited_edges.add(e)
+                break
     
     logger.debug(
         f"build_descendant_cluster: vertex='{vertex.text()}' (ID={vertex.id}) → "
-        f"{len(descendant_vertices)} descendant vertices, {len(visited_edges)} hyperedges"
+        f"{len(descendant_nodes)} descendant nodes, {len(visited_edges)} hyperedges"
     )
-    
     return SemanticCluster(list(visited_edges), hg.doc)
 
 def calc_embedding_for_cluster_batch(clusters: list[SemanticCluster]) -> None:
@@ -611,102 +605,68 @@ def get_semantic_cluster_pairs(
     allowed_pairs: Set[Tuple[int, int]],
     vertex_to_sim_id_q: Dict[Vertex, int],
     vertex_to_sim_id_d: Dict[Vertex, int],
-    max_hops: int = 2,
+    max_hops_query: int = 1,   # Query 1 跳
+    max_hops_data: int = 2,    # Data 2 跳
     cluster_sim_threshold: float = 0.4,
     logger: Optional[logging.Logger] = None
 ) -> List[Tuple[SemanticCluster, SemanticCluster, float, Vertex, Vertex]]:
-    """
-    顶点驱动构建语义簇对
-    返回: [(sc_q, sc_d, sim_score, q_vertex, d_vertex), ...]
-    """
+    
     if logger is None:
         logger = getLogger("semantic_cluster")
     
-    # Step 1: 预处理 - 为每个顶点构建后代簇（缓存避免重复计算）
-    logger.info(f"预处理后代簇 (max_hops={max_hops})...")
+    logger.info(f"按需构建语义簇 (Query hops={max_hops_query}, Data hops={max_hops_data})...")
     start_time = time.time()
-    
-    # 查询图顶点 → 后代簇
-    q_vertex_to_cluster: Dict[Vertex, SemanticCluster] = {}
-    for v in query_hg.vertices:
-        q_vertex_to_cluster[v] = build_descendant_cluster(v, query_hg, max_hops)
-    
-    # 数据图顶点 → 后代簇
-    d_vertex_to_cluster: Dict[Vertex, SemanticCluster] = {}
-    for v in data_hg.vertices:
-        d_vertex_to_cluster[v] = build_descendant_cluster(v, data_hg, max_hops)
-    
-    # 批量计算嵌入
-    all_clusters = list(q_vertex_to_cluster.values()) + list(d_vertex_to_cluster.values())
-    calc_embedding_for_cluster_batch(all_clusters)
-    
-    preproc_time = time.time() - start_time
-    logger.info(f"后代簇预处理完成: Q={len(q_vertex_to_cluster)} vertices, D={len(d_vertex_to_cluster)} vertices (cost {preproc_time:.3f}s)")
-    
-    # Step 2: 遍历 allowed_pairs，构建高相似度簇对
-    cluster_pairs: List[Tuple[SemanticCluster, SemanticCluster, float, Vertex, Vertex]] = []
-    pair_count = 0
-    kept_count = 0
     
     # 反向映射: SimID → Vertex
     sim_id_to_vertex_q = {sim_id: v for v, sim_id in vertex_to_sim_id_q.items()}
     sim_id_to_vertex_d = {sim_id: v for v, sim_id in vertex_to_sim_id_d.items()}
     
+    cluster_pairs = []
+    pair_count = kept_count = 0
+    
     for q_sim_id, d_sim_id in allowed_pairs:
         pair_count += 1
         
-        # 映射回 Vertex
         q_vertex = sim_id_to_vertex_q.get(q_sim_id)
         d_vertex = sim_id_to_vertex_d.get(d_sim_id)
         if q_vertex is None or d_vertex is None:
             continue
         
-        # 获取后代簇
-        sc_q = q_vertex_to_cluster.get(q_vertex)
-        sc_d = d_vertex_to_cluster.get(d_vertex)
-        if sc_q is None or sc_d is None or not sc_q.hyperedges or not sc_d.hyperedges:
+        # === Query 簇  ===
+        sc_q = build_descendant_cluster(q_vertex, query_hg, max_hops=max_hops_query)
+        if not sc_q.hyperedges:
             continue
         
-        # 计算簇相似度
+        # === Data 簇 ===
+        sc_d = build_descendant_cluster(d_vertex, data_hg, max_hops=max_hops_data)
+        if not sc_d.hyperedges:
+            continue
+        
+        # 计算嵌入和相似度
+        calc_embedding_for_cluster_batch([sc_q, sc_d])
         if sc_q.embedding is None or sc_d.embedding is None:
             continue
-        sim_score = cosine_similarity(sc_q.embedding, sc_d.embedding)
         
-        # 仅保留高相似度簇对
+        sim_score = cosine_similarity(sc_q.embedding, sc_d.embedding)
         if sim_score >= cluster_sim_threshold:
             cluster_pairs.append((sc_q, sc_d, sim_score, q_vertex, d_vertex))
             kept_count += 1
             
-            q_text = sc_q.text() or "[EMPTY]"
-            d_text = sc_d.text() or "[EMPTY]"
-
-            # 获取第一个三元组作为代表（格式: (pred, arg1, arg2, ...)）
             q_triples = sc_q.to_triple() or []
             d_triples = sc_d.to_triple() or []
-
-            if q_triples:
-                root, args = q_triples[0]
-                q_triple_repr = f"({root}, {', '.join(args)})"
-            else:
-                q_triple_repr = "(no triple)"
-
-            if d_triples:
-                root, args = d_triples[0]
-                d_triple_repr = f"({root}, {', '.join(args)})"
-            else:
-                d_triple_repr = "(no triple)"
-
-            logger.info(
+            q_triple_repr = f"({q_triples[0][0]}, {', '.join(q_triples[0][1])})" if q_triples else "(no triple)"
+            d_triple_repr = f"({d_triples[0][0]}, {', '.join(d_triples[0][1])})" if d_triples else "(no triple)"
+            
+            logger.debug(
                 f"→ 采纳簇对 #{kept_count} | Δ(Q{q_vertex.id}, D{d_vertex.id}) score={sim_score:.3f}\n"
-                f"  Q: text='{q_text}'\n"
+                f"  Q: text='{sc_q.text()}' | nodes={len(sc_q.get_vertices())}, edges={len(sc_q.hyperedges)}\n"
                 f"     triple={q_triple_repr}\n"
-                f"     nodes={len(sc_q.get_vertices())}, edges={len(sc_q.hyperedges)}\n"
-                f"  D: text='{d_text}'\n"
-                f"     triple={d_triple_repr}\n"
-                f"     nodes={len(sc_d.get_vertices())}, edges={len(sc_d.hyperedges)}"
+                f"  D: text='{sc_d.text()}' | nodes={len(sc_d.get_vertices())}, edges={len(sc_d.hyperedges)}\n"
+                f"     triple={d_triple_repr}"
             )
     
-    logger.info(f"语义簇构建完成: {pair_count} allowed pairs → {kept_count} high-similarity cluster pairs (threshold={cluster_sim_threshold})")
+    cost = time.time() - start_time
+    logger.info(f"语义簇构建完成: {pair_count} allowed pairs → {kept_count} high-similarity cluster pairs (cost {cost:.3f}s)")
     return cluster_pairs
 
 def node_sequence_to_text(nodes: list[Node]) -> str:

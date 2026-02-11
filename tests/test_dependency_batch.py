@@ -42,7 +42,7 @@ def load_ctx_texts(json_dir):
 
 def get_rel(nlp, text):
     doc = nlp(text, component_cfg={"fastcoref": {'resolve_text': True}})
-    print(f"Resolved Text: {doc._.resolved_text}")
+    # print(f"Resolved Text: {doc._.resolved_text}")
     correfs = calc_correfs_str(doc)
     spans_to_merge = combine(doc, correfs)
     with doc.retokenize() as retokenizer:

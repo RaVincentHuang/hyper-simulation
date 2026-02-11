@@ -21,6 +21,7 @@ show = { cmd = "python src/hyper_simulation/question_answer/utils/show_task.py"}
 rag = { cmd = [
     "python src/hyper_simulation/question_answer/rag.py",
     ]}
+clean = { cmd = "python src/hyper_simulation/utils/clean.py"}
 
 [dependencies]
 # python = "3.11.*"
