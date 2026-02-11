@@ -4,15 +4,15 @@ from thefuzz import process
 from hyper_simulation.hypergraph.abstraction import TokenAbstractor
 
 class QueryType(Enum):
-    BELONGS = 1
-    WHAT = 2
-    WHICH = 3
-    PERSON = 4
-    ATTRIBUTE = 5
-    NUMBER = 6
-    TIME = 7
-    LOCATION = 8
-    REASON = 9
+    BELONGS = 1 # whose
+    WHAT = 2 # what / which
+    WHICH = 3 # what / which
+    PERSON = 4 # who
+    ATTRIBUTE = 5 # how *, *: str
+    NUMBER = 6 # how many / how much / how fast
+    TIME = 7 # when
+    LOCATION = 8 # where
+    REASON = 9 # why
 
 class Pos(IntEnum):
     ADP = 1

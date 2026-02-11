@@ -543,7 +543,7 @@ class SemanticCluster:
             return False
         return self.signature() == other.signature()
 
-# --- 辅助函数：构建顶点的后代簇（BFS，max_hops 跳内）---
+# --- 辅助函数：构建顶点的后代簇（找依存树上根的节点，max_hops 跳内）---
 def build_descendant_cluster(
     vertex: Vertex,
     hg: Hypergraph,
@@ -677,18 +677,33 @@ def get_semantic_cluster_pairs(
             cluster_pairs.append((sc_q, sc_d, sim_score, q_vertex, d_vertex))
             kept_count += 1
             
-            # 丰富日志
+            q_text = sc_q.text() or "[EMPTY]"
+            d_text = sc_d.text() or "[EMPTY]"
+
+            # 获取第一个三元组作为代表（格式: (pred, arg1, arg2, ...)）
             q_triples = sc_q.to_triple() or []
             d_triples = sc_d.to_triple() or []
-            q_triple_repr = str(q_triples[0]) if q_triples else "(no triple)"
-            d_triple_repr = str(d_triples[0]) if d_triples else "(no triple)"
-            
-            logger.debug(
+
+            if q_triples:
+                root, args = q_triples[0]
+                q_triple_repr = f"({root}, {', '.join(args)})"
+            else:
+                q_triple_repr = "(no triple)"
+
+            if d_triples:
+                root, args = d_triples[0]
+                d_triple_repr = f"({root}, {', '.join(args)})"
+            else:
+                d_triple_repr = "(no triple)"
+
+            logger.info(
                 f"→ 采纳簇对 #{kept_count} | Δ(Q{q_vertex.id}, D{d_vertex.id}) score={sim_score:.3f}\n"
-                f"  Q: text='{sc_q.text()}' | nodes={len(sc_q.get_vertices())}, edges={len(sc_q.hyperedges)}\n"
+                f"  Q: text='{q_text}'\n"
                 f"     triple={q_triple_repr}\n"
-                f"  D: text='{sc_d.text()}' | nodes={len(sc_d.get_vertices())}, edges={len(sc_d.hyperedges)}\n"
-                f"     triple={d_triple_repr}"
+                f"     nodes={len(sc_q.get_vertices())}, edges={len(sc_q.hyperedges)}\n"
+                f"  D: text='{d_text}'\n"
+                f"     triple={d_triple_repr}\n"
+                f"     nodes={len(sc_d.get_vertices())}, edges={len(sc_d.hyperedges)}"
             )
     
     logger.info(f"语义簇构建完成: {pair_count} allowed pairs → {kept_count} high-similarity cluster pairs (threshold={cluster_sim_threshold})")
