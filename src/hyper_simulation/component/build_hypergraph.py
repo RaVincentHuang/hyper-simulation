@@ -14,9 +14,9 @@ from hyper_simulation.query_instance import QueryInstance
 from hyper_simulation.hypergraph.hypergraph import Hypergraph as LocalHypergraph
 from hyper_simulation.hypergraph.dependency import Node, LocalDoc, Dependency
 from hyper_simulation.hypergraph.combine import combine, calc_correfs_str
+from hyper_simulation.utils.clean import clean_text_for_spacy
 
 _NLP: Optional[spacy.Language] = None
-
 
 def normalize_special_chars(text: str) -> str:
     """
@@ -68,7 +68,6 @@ def get_nlp() -> spacy.Language:
         _NLP = spacy.load('en_core_web_trf')
         if 'fastcoref' not in _NLP.pipe_names:
             local_model_path = "/home/vincent/.cache/huggingface/hub/models--biu-nlp--lingmess-coref/snapshots/fa5d8a827a09388d03adbe9e800c7d8c509c3935"
-            # _NLP.add_pipe('fastcoref', config={ 'model_architecture': 'LingMessCoref', 'model_path': 'biu-nlp/lingmess-coref', 'device': 'cpu'})
             _NLP.add_pipe('fastcoref', config={ 'model_architecture': 'LingMessCoref', 'model_path': local_model_path, 'device': 'cpu'})
     return _NLP
 
@@ -94,6 +93,8 @@ def doc_to_hypergraph(doc: Doc, text: str, is_query: bool = False) -> LocalHyper
     return hypergraph
 
 def text_to_hypergraph(text: str, is_query: bool = False) -> LocalHypergraph:
+    text = clean_text_for_spacy(text)
+    # print(f"\n[Original Text]:\n{text}\n")
     doc = text_to_doc(text)
     return doc_to_hypergraph(doc, text, is_query=is_query)
 
@@ -154,7 +155,7 @@ def build_hypergraph_batch(
     force_rebuild: bool = False
 ) -> List[str]:
     instance_dirs = []
-    for qi in tqdm(query_instances, desc="Building hypergraphs"):
+    for qi in tqdm(query_instances, desc="Building hypergraphs", position=1, leave=False):
         instance_dir = build_hypergraph_for_query_instance(
             qi, dataset_name, base_dir, force_rebuild
         )

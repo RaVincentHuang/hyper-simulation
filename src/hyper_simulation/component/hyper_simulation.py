@@ -202,11 +202,11 @@ def build_delta_and_dmatch(
     # Step 1: 多节点语义簇（结构化匹配，带异常隔离）
     cluster_count = 0
     # === 阶段1：记录原始结果（来自 get_semantic_cluster_pairs）===
-    raw_pairs = get_semantic_cluster_pairs(query_local_hg, data_local_hg, allowed_pairs, vertex_to_sim_id_q, vertex_to_sim_id_d, max_hops=2, cluster_sim_threshold=0.4, logger=sc_logger)
+    raw_pairs = get_semantic_cluster_pairs(query_local_hg, data_local_hg, allowed_pairs, vertex_to_sim_id_q, vertex_to_sim_id_d, max_hops_query=2, max_hops_data=4, cluster_sim_threshold=0.4, logger=sc_logger)
     sc_logger.info(f"语义簇生成完成: 共 {len(raw_pairs)} 个原始簇对")
     # === 阶段2：处理并记录过滤后结果 ===
     cluster_count = 0
-    for sc_q, sc_d, sim_score in raw_pairs:
+    for sc_q, sc_d, sim_score, q_vertex, d_vertex in raw_pairs:
         # --- 提取结构信息 ---
         q_vertices = sc_q.get_vertices()
         d_vertices = sc_d.get_vertices()

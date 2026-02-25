@@ -81,7 +81,7 @@ langchain_core = "*"
 
 [feature.hypergraph.tasks]
 dependency = { cmd = "python tests/test_dependency.py"}
-build = { cmd = "python src/hyper_simulation/question_answer/rag_no_retrival.py --method hyper_simulation --build False" }
+build = { cmd = "python src/hyper_simulation/question_answer/rag_no_retrival.py --method hyper_simulation --build" }
 # pixi run -e hypergraph build --data_path /home/vincent/.dataset/HotpotQA/sample20distractor --task hotpotqa
 # pixi run -e hypergraph build --data_path /home/vincent/.dataset/musique/sample50 --task musique
 # pixi run -e hypergraph build --data_path /home/vincent/.dataset/MultiHop/sample50 --task multihop
@@ -113,7 +113,7 @@ hyper_simulation = { cmd = "python src/hyper_simulation/question_answer/rag_no_r
 # LD_LIBRARY_PATH="/home/vincent/hyper-simulation/.pixi/envs/simulation/lib" \
 # pixi run -e simulation hyper_simulation --data_path /home/vincent/.dataset/HotpotQA/sample20distractor --task hotpotqa
 # pixi run -e simulation rag_no_retrival --data_path /home/vincent/.dataset/HotpotQA/sample20distractor --output_path data/baseline/contradoc --method contradoc --task hotpotqa
-
+# pixi run -e simulation rag_no_retrival --data_path /home/vincent/.dataset/musique/sample50 --output_path data/baseline/contradoc/ --method contradoc --task musique
 test_nli = { cmd = "python tests/tools/nli.py" }
 
 [environments]

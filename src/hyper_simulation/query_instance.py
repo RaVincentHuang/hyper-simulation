@@ -5,7 +5,9 @@ from typing import Any, List, Union
 @dataclass
 class QueryInstance:
     query: str
-    data: list[str]
+    data: list[str]# top-k, H1, ..., Hk => H
+    # H_Q, H
+    # (_, C2) in HC -> HC2, v in reach(u), (1) exists a C sequence C1, ..., Cn, n >= 1, u in C1, v in Cn, Ci iter Ci+1 != empty  
     answers: list[str]
     ground_truth: list[tuple[bool, Any]]  # list of (has_contradiction, evidence)
     fixed_data: Union[List[str], None] = None

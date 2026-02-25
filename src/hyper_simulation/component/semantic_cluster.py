@@ -261,7 +261,13 @@ class SemanticCluster:
                 saved_nodes.add(node)
             head = root.head
             current = root
+            visited_in_trace = {current}
             while head:
+                if head in visited_in_trace:
+                    logger.warning(f"Cycle detected in head trace: '{head.text}' is already in trace. Breaking.")
+                    break
+                visited_in_trace.add(head)
+                
                 edge_between_nodes.append((head, current))
                 if head in saved_nodes:
                     break
@@ -298,6 +304,7 @@ class SemanticCluster:
             path_items: list[Node] = []
             current = u
             current_trace: list[str] = [current.text]
+            visited_trace: set[Node] = {current}
             while current != k:
                 if current in nodes_in_vertices:
                     node_cnt += 1
@@ -308,6 +315,11 @@ class SemanticCluster:
                             f"Trace: {' → '.join(current_trace)}")
                     break
                 # >>> 新增：防止自环导致死循环 <<<
+                if current.head in visited_trace:
+                    logger.warning(f"Cycle detected in u→k trace: '{current.head.text}' is already in trace. Breaking.")
+                    break
+                visited_trace.add(current.head)
+                
                 if current.head == current:
                     logger.warning(f"Detected self-loop at node '{current.text}' during u→k trace. Breaking.")
                     break
@@ -321,6 +333,7 @@ class SemanticCluster:
                 rev_path_items: list[Node] = []
                 current = v
                 current_trace = [current.text]
+                visited_trace_v: set[Node] = {current}
                 while current != k:
                     if current in nodes_in_vertices:
                         node_cnt += 1
@@ -331,6 +344,11 @@ class SemanticCluster:
                                 f"Trace: {' → '.join(current_trace)}")
                         break
                     # >>> 新增：防止自环导致死循环 <<<
+                    if current.head in visited_trace_v:
+                        logger.warning(f"Cycle detected in v→k trace: '{current.head.text}' is already in trace. Breaking.")
+                        break
+                    visited_trace_v.add(current.head)
+                    
                     if current.head == current:
                         logger.warning(f"Detected self-loop at node '{current.text}' during v→k trace. Breaking.")
                         break
@@ -837,22 +855,41 @@ def get_d_match(sc1: SemanticCluster, sc2: SemanticCluster, score_threshold: flo
     
     # logger.info(f"SC1 direct edges: {[(u.text(), v.text()) for u, v in sc1_edges]}")
 
-    sc1_pairs : list[tuple[Vertex, Vertex]] = []
+    # sc1_pairs : list[tuple[Vertex, Vertex]] = []
     # all (u, v) in sc1_edges are in sc1_pairs, and if (u, k), (k, v) in sc1_edges, then (u, v) is also in sc1_pairs
     # calculate then recursively
+    
+    # 优化：使用 set 和邻接表加速传递闭包计算
+    sc1_pairs_set = set(sc1_edges)
     added = True
-    for u, v in sc1_edges:
-        sc1_pairs.append((u, v))
+    tc_loop_count = 0
     while added:
+        tc_loop_count += 1
+        # 使用 INFO 级别日志以确保可见，同时加上阈值避免刷屏（仅在循环次数较多时显示）
+        if tc_loop_count == 1 or tc_loop_count % 10 == 0:
+            dm_logger.info(f"Transitive Closure Iteyration {tc_loop_count}: current pairs count = {len(sc1_pairs_set)}")
+            
         added = False
-        current_pairs = sc1_pairs.copy()
-        for u1, v1 in current_pairs:
-            for u2, v2 in current_pairs:
-                if v1 == u2:
-                    new_pair = (u1, v2)
-                    if new_pair not in sc1_pairs:
-                        sc1_pairs.append(new_pair)
-                        added = True
+        # 构建邻接表
+        adj = {}
+        for u, v in sc1_pairs_set:
+            if u not in adj: adj[u] = []
+            adj[u].append(v)
+            
+        new_edges = set()
+        for u in adj:
+            for v in adj[u]:
+                if v in adj:
+                    for w in adj[v]:
+                        if u == w: continue # 避免自环
+                        if (u, w) not in sc1_pairs_set and (u, w) not in new_edges:
+                            new_edges.add((u, w))
+                            added = True
+        
+        if new_edges:
+            sc1_pairs_set.update(new_edges)
+            
+    sc1_pairs = list(sc1_pairs_set)
     
     def _is_pair_in_vertices(u: Vertex, v: Vertex) -> bool:
         if u.pos_equal(Pos.VERB) or u.pos_equal(Pos.AUX):
@@ -882,18 +919,23 @@ def get_d_match(sc1: SemanticCluster, sc2: SemanticCluster, score_threshold: flo
     sc2_paths: dict[tuple[Vertex, Vertex], tuple[str, int]] = {}
     
     # 核心匹配逻辑
+    dm_logger.info(f"Start Core Matching Logic: {len(sc1_pairs)} sc1 pairs")
+    processed_count = 0
     for u, u_prime in sc1_pairs:
+        processed_count += 1
+        if processed_count % 10 == 0:
+             dm_logger.debug(f"Processing sc1 pair {processed_count}/{len(sc1_pairs)}")
         for v, v_prime in itertools.product(likely_nodes.get(u, set()), likely_nodes.get(u_prime, set())):
             if v == v_prime:
                 continue
             s1, cnt1 = sc1_paths[(u, u_prime)]
-            # logger.info(f"    Calling sc2.get_paths_between_vertices('{v.text()}', '{v_prime.text()}')")
+            dm_logger.debug(f"    Calling sc2.get_paths_between_vertices('{v.text()}', '{v_prime.text()}')")
             s2, cnt2 = sc2.get_paths_between_vertices(v, v_prime)
-            # logger.info(f"    Forward path: count={cnt2}, sample='{s2[:50]}...'")
+            dm_logger.debug(f"    Forward path: count={cnt2}, sample='{s2[:50]}...'")
 
-            # logger.info(f"    Calling sc2.get_paths_between_vertices('{v_prime.text()}', '{v.text()}')")
+            dm_logger.debug(f"    Calling sc2.get_paths_between_vertices('{v_prime.text()}', '{v.text()}')")
             s2_inv, cnt2_prime = sc2.get_paths_between_vertices(v_prime, v)
-            # logger.info(f"    Backward path: count={cnt2_prime}, sample='{s2_inv[:50]}...'")
+            dm_logger.debug(f"    Backward path: count={cnt2_prime}, sample='{s2_inv[:50]}...'")
             
             # 处理单向路径缺失
             if cnt2 == 0 or s2 == "":
@@ -908,7 +950,7 @@ def get_d_match(sc1: SemanticCluster, sc2: SemanticCluster, score_threshold: flo
             
             # === 修复3: 移除危险 assert，替换为防御性跳过 + 精准日志 ===
             if not s2 or not s2_inv:
-                # logger.info(f"D-Match跳过: Empty paths for vertex pair '{v.text()}' ↔ '{v_prime.text()}' in cluster. s2='{s2}', s2_inv='{s2_inv}'")
+                dm_logger.debug(f"D-Match跳过: Empty paths for vertex pair '{v.text()}' ↔ '{v_prime.text()}' in cluster. s2='{s2}', s2_inv='{s2_inv}'")
                 continue
             
             if _better_path(s1, s2, s2_inv):
@@ -918,8 +960,8 @@ def get_d_match(sc1: SemanticCluster, sc2: SemanticCluster, score_threshold: flo
                 sc2_pairs.append((v_prime, v))
                 sc2_paths[(v_prime, v)] = (s2_inv, cnt2)
 
-    # logger.info(f"SC2 inferred path pairs: {[(u.text(), v.text()) for u, v in sc2_pairs]}")
-    # logger.info(f"SC2 paths count: {len(sc2_paths)}")
+    dm_logger.debug(f"SC2 inferred path pairs: {[(u.text(), v.text()) for u, v in sc2_pairs]}")
+    dm_logger.debug(f"SC2 paths count: {len(sc2_paths)}")
 
     # 让每一个节点和root做一次计算，通过此计算能得到一个分数。核心在于确定超边的子边方向
     match_scores: dict[tuple[Vertex, Vertex], float] = {}
@@ -928,7 +970,7 @@ def get_d_match(sc1: SemanticCluster, sc2: SemanticCluster, score_threshold: flo
         if _legal_vertices(u, v):
             matches.append((u, v))
     
-    # logger.info(f"Initial legal matches count: {len(matches)}")
+    dm_logger.debug(f"Initial legal matches count: {len(matches)}")
 
     in_paths_of_sc1: dict[Vertex, list[tuple[str, int]]] = {}
     out_paths_of_sc1: dict[Vertex, list[tuple[str, int]]] = {}
@@ -940,11 +982,11 @@ def get_d_match(sc1: SemanticCluster, sc2: SemanticCluster, score_threshold: flo
             out_paths_of_sc1[u] = []
         out_paths_of_sc1[u].append(sc1_paths[(u, v)])
     
-    # for vertex in sc1_vertices:
-    #     if vertex in in_paths_of_sc1:
-    #         logger.info(f"SC1 Vertex '{vertex.text()}' In Paths: {[s for s, _ in in_paths_of_sc1[vertex]]}")
-    #     if vertex in out_paths_of_sc1:
-    #         logger.info(f"SC1 Vertex '{vertex.text()}' Out Paths: {[s for s, _ in out_paths_of_sc1[vertex]]}")
+    for vertex in sc1_vertices:
+        if vertex in in_paths_of_sc1:
+            dm_logger.debug(f"SC1 Vertex '{vertex.text()}' In Paths: {[s for s, _ in in_paths_of_sc1[vertex]]}")
+        if vertex in out_paths_of_sc1:
+            dm_logger.debug(f"SC1 Vertex '{vertex.text()}' Out Paths: {[s for s, _ in out_paths_of_sc1[vertex]]}")
     
     
     in_paths_of_sc2: dict[Vertex, list[tuple[str, int]]] = {}
@@ -957,11 +999,11 @@ def get_d_match(sc1: SemanticCluster, sc2: SemanticCluster, score_threshold: flo
             out_paths_of_sc2[u] = []
         out_paths_of_sc2[u].append(sc2_paths[(u, v)])
     
-    # for vertex in sc2_vertices:
-    #     if vertex in in_paths_of_sc2:
-    #         logger.info(f"SC2 Vertex '{vertex.text()}' In Paths: {[s for s, _ in in_paths_of_sc2[vertex]]}")
-    #     if vertex in out_paths_of_sc2:
-    #         logger.info(f"SC2 Vertex '{vertex.text()}' Out Paths: {[s for s, _ in out_paths_of_sc2[vertex]]}")
+    for vertex in sc2_vertices:
+        if vertex in in_paths_of_sc2:
+            dm_logger.debug(f"SC2 Vertex '{vertex.text()}' In Paths: {[s for s, _ in in_paths_of_sc2[vertex]]}")
+        if vertex in out_paths_of_sc2:
+            dm_logger.debug(f"SC2 Vertex '{vertex.text()}' Out Paths: {[s for s, _ in out_paths_of_sc2[vertex]]}")
     
     root_path_of_sc1: dict[Vertex, list[tuple[str, int]]] = {}
     for e in sc1.hyperedges:
@@ -1013,6 +1055,8 @@ def get_d_match(sc1: SemanticCluster, sc2: SemanticCluster, score_threshold: flo
                     path_pair_need_to_calc.add((s1, s2))
 
     # logger.info(f"Path similarity pairs to compute: {len(path_pair_need_to_calc)}")
+    if path_pair_need_to_calc:
+        dm_logger.info(f"Computing path similarities for {len(path_pair_need_to_calc)} pairs...")
     
     path_list_1: list[str] = []
     path_list_2: list[str] = []

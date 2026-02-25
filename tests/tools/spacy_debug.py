@@ -152,12 +152,7 @@ def debug_text_to_hypergraph(
 
 
 if __name__ == "__main__":
-    text = """Dekhmeh Rawansar.
-Dekhmeye Rawansar (دخمه روانسر) is a rock-cut tomb located near the town of Ravansar (Kurdish: Rowansar), about 57 km northwest of Kermanshah, at west of Iran.
-This tomb was known to Ernst Herzfeld but he never visited it.
-The first archaeologist who visited the tomb was Massoud Golzari, an Iranian archaeologist who attributed it to Medes.
-It is re-visited and examined by Peter Calmeyer, German archaeologist (birth. 5 September 1930 in Halle, death. 22 November 1995 in Berlin) in the 1970s, who according to his observations related the tomb to the Achaemenid period.
-"""
+    text = """Huguenots. The French Protestant Church of London was established by Royal Charter in 1550. It is now located at Soho Square. Huguenot refugees flocked to Shoreditch, London. They established a major weaving industry in and around Spitalfields (see Petticoat Lane and the Tenterground) in East London. In Wandsworth, their gardening skills benefited the Battersea market gardens. The Old Truman Brewery, then known as the Black Eagle Brewery, was founded in 1724. The flight of Huguenot refugees from Tours, France drew off most of the workers of its great silk mills which they had built.[citation needed] Some of these immigrants moved to Norwich, which had accommodated an earlier settlement of Walloon weavers. The French added to the existing immigrant population, then comprising about a third of the population of the city."""
     
     parser = ArgumentParser(description="Debug spaCy dependency pipeline steps.")
     parser.add_argument("--output-dir", type=str, default="logs/dep_debug")

@@ -724,7 +724,8 @@ def run_rag_evaluation(
     temperature: float = 0.7,
     task: str = "hotpotqa",
     method: str = "vanilla",
-    build: bool = True
+    build: bool = True,
+    rebuild: bool = False
 ):
     """
     运行RAG评估任务
@@ -762,7 +763,7 @@ def run_rag_evaluation(
     current_task.set(task)
     logger = getLogger(__name__, "INFO")
     # 按批次处理
-    for batch_start in tqdm(range(0, len(data), batch_size), desc="Processing batches"):
+    for batch_start in tqdm(range(0, len(data), batch_size), desc="Processing batches", position=0, leave=True):
         assert batch_start + batch_size <= len(data) 
         batch = data[batch_start:(batch_start + batch_size)]
         
@@ -788,7 +789,7 @@ def run_rag_evaluation(
                 query_instance = QueryInstance(
                     query=item['question'],
                     data=[
-                        f"{title}\n" + "\n".join(sentences)
+                        f"{title}.\n" + "\n".join(sentences)
                         for title, sentences in item['context']
                     ],
                     fixed_data=[],
@@ -830,7 +831,7 @@ def run_rag_evaluation(
                 query_instance = QueryInstance(
                     query=item["question"],
                     data=[
-                        f"{title}\n" + "\n".join(sentences)
+                        f"{title}.\n" + "\n".join(sentences)
                         for title, sentences in item["context"]
                     ],
                     fixed_data=[],
@@ -859,7 +860,7 @@ def run_rag_evaluation(
                 query_instance = QueryInstance(
                     query=item["question"],
                     data=[
-                        f"{title}\n" + "\n".join(sentences)
+                        f"{title}.\n" + "\n".join(sentences)
                         for title, sentences in item["context"]
                     ],
                     fixed_data=[],
@@ -889,7 +890,7 @@ def run_rag_evaluation(
                 query_instance = QueryInstance(
                     query=item["question"],
                     data=[
-                        f"{title}\n" + "\n".join(sentences)
+                        f"{title}.\n" + "\n".join(sentences)
                         for title, sentences in item["context"]
                     ],
                     fixed_data=[],
@@ -919,7 +920,7 @@ def run_rag_evaluation(
                 query_instance = QueryInstance(
                     query=item["question"],
                     data=[
-                        f"{title}\n" + "\n".join(sentences)
+                        f"{title}.\n" + "\n".join(sentences)
                         for title, sentences in item["context"]
                     ],
                     fixed_data=[],
@@ -943,8 +944,8 @@ def run_rag_evaluation(
             # 前提：将query_instances的每个item都转换为.pkl文件。
             if not build:
                 from hyper_simulation.component.build_hypergraph import build_hypergraph_batch
-                build_hypergraph_batch(query_instances, dataset_name=task)
-                print("build hypergraph")
+                build_hypergraph_batch(query_instances, dataset_name=task, force_rebuild=rebuild)
+                # print("build hypergraph")
                 continue
             else:
                 from hyper_simulation.component.consistent import query_fixup
@@ -1091,17 +1092,23 @@ def main():
         default='hotpotqa',
         help='Task type (default: hotpotqa)'
     )
-
+    
     parser.add_argument(
         '--build',
-        type=str,
-        default='True',
-        help='Whether hypergraphs already exist (default: "True"). Set to "False" to rebuild.'
+        action='store_true',
+        help='Whether to build hypergraph (default: False). Set to True to build hypergraph before evaluation.'
     )
     
+    parser.add_argument(
+        '--rebuild',
+        action='store_true',
+        help='Whether to rebuild hypergraph (default: False). Set to True to rebuild hypergraph before evaluation.'
+    )
 
     args = parser.parse_args()
-    build_flag = (args.build.strip().lower() == 'true')
+    build_flag = args.build == False
+    rebuild_flag = args.rebuild == True
+    # rebuild_flag = args.rebuild == True
     # 运行评估
     run_rag_evaluation(
         data_path=args.data_path,
@@ -1111,7 +1118,8 @@ def main():
         temperature=args.temperature,
         method=args.method,
         task=args.task,
-        build=build_flag
+        build=build_flag,
+        rebuild=rebuild_flag
     )
 
 

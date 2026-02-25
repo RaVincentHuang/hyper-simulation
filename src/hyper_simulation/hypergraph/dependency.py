@@ -648,6 +648,7 @@ class Dependency:
         # print("Conjunctions solved. Resulting Nodes:")
         # for node in self.nodes:
         #     print(f"{node}, head is '{node.head.text if node.head else 'ROOT'}'")
+        # print("Conjunctions solved.\n")
         return self
     
     # PASS 2: Mark all the antecedent of pronouns.
@@ -697,7 +698,7 @@ class Dependency:
         
         # TODO: solve the ccomp dependencies if necessary
         # e.g., It is true that simulation works.
-        
+        # print("Pronoun antecedents marked.\n")
         return self
     
     # PASS 3: Mark the prefixes for prepositions and agents
@@ -724,6 +725,7 @@ class Dependency:
                 else:
                     node.suffix_prep = node.head.text
                     node.suffix_index = node.head.index
+        # print("Prefixes for prepositions and agents marked.\n")
         return self
     
     # PASS 4: Mark all the vertex, that all the nodes should be a Vertex i.f.f. statisfy:
@@ -831,7 +833,7 @@ class Dependency:
                     continue
                 node.is_vertex = True
                 self.vertexes.append(node)
-        
+        # print(f"Vertexes marked. Total vertexes: {len(self.vertexes)}\n")
         return self
     
     # PASS 5: Compress dependencies that only links vertex nodes.
@@ -848,7 +850,9 @@ class Dependency:
                 continue
             pred = node.head
             while pred and not pred.is_vertex:
+                # print(f"Compressing dependency for node '{node.text}' (head: '{pred.text}'), dep: {node.dep.name}")
                 if pred in self.correfence_map:
+                    # print(f"    - Node '{pred.text}' is mapped to coreference primary '{self.correfence_map[pred].text}'")
                     pred = self.correfence_map[pred]
                 else:
                     node.former_nodes.insert(0, pred)  # 插入到头部
@@ -858,6 +862,7 @@ class Dependency:
                 if pred not in self.links_succ:
                     self.links_succ[pred] = []
                 self.links_succ[pred].append(node)
+        # print("Dependencies compressed.\n")
         return self
 
     # PASS 6: Calculate all the relationships.

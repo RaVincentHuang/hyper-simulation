@@ -1,4 +1,3 @@
-from platform import node
 from hyper_simulation.hypergraph.dependency import LocalDoc, Node, Pos, Entity, Relationship, Dep, Tag
 import itertools
 import logging
@@ -22,7 +21,40 @@ class Vertex:
         if not isinstance(other, Vertex):
             return False
         return self.id == other.id
+    
+    def display_pos(self) -> str:
+        # 进行去重后再显示
+        return "|".join(p.name for p in self.poses)
+    
+    def display_ent(self) -> str:
+        res = ""
         
+        # 1. NER results
+        if self.ents and any(e != Entity.NOT_ENTITY for e in self.ents):
+            res += f"[{'|'.join(e.name for e in self.ents if e != Entity.NOT_ENTITY)}]"
+        
+        # 2. WordNet abstraction (if available)
+        wn_tags: list[str] = []
+        for n in self.nodes:
+            if hasattr(n, 'wn_abstraction') and n.wn_abstraction:
+                wn_tags.append(n.wn_abstraction)
+        
+        if wn_tags:
+            res += f"<{'|'.join(wn_tags)}>"
+            
+        # 3. Query Entity Tag
+        query_tags: list[str] = []
+        for n in self.nodes:
+            if n.is_query and n.query_type:
+                if n.query_attribute:
+                    query_tags.append(f"{n.query_type.name}({n.query_attribute})")
+                else:
+                    query_tags.append(n.query_type.name)
+        
+        if query_tags:
+            res += f"[{'|'.join(query_tags)}]"
+        return res
+    
     def pos_equal(self, pos: Pos) -> bool:
         if not len(self.poses):
             return False
@@ -534,7 +566,7 @@ class Hypergraph:
         
         if self.vertices:
             sample_vertices = self.vertices
-            vertex_texts = [f"    - [{v.id}] {v.text()}" for v in sample_vertices]
+            vertex_texts = [f"    - [{v.id}] {v.text()}; Ent: {v.display_ent()}, POS: {v.display_pos()}" for v in sample_vertices]
             log_func("  • Vertices:")
             for vt in vertex_texts:
                 log_func(vt)
@@ -544,7 +576,7 @@ class Hypergraph:
             edge_descs = []
             for i, e in enumerate(sample_edges):
                 nodes = ", ".join(f"[{v.id}] {v.text()}" for v in e.vertices)
-                desc = f"    - Hyperedge#{i}: ({nodes}); '{e.desc}'"
+                desc = f"    - Hyperedge#{i}: ({nodes}); '{e.text()}'"
                 edge_descs.append(desc)
             log_func("  • Hyperedges:")
             for ed in edge_descs:
@@ -559,7 +591,7 @@ class Hypergraph:
         lines.append(f"  • Doc ID: {getattr(self.doc, 'id', 'N/A')}")
         if self.vertices:
             sample_vertices = self.vertices
-            vertex_texts = [f"    - [{v.id}] {v.text()}" for v in sample_vertices]
+            vertex_texts = [f"    - [{v.id}] {v.text()}; Ent: {v.display_ent()}, POS: {v.display_pos()}" for v in sample_vertices]
             lines.append("  • Vertices:")
             for vt in vertex_texts:
                 lines.append(vt)

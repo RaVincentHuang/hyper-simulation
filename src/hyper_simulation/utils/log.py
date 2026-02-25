@@ -47,9 +47,12 @@ def getLogger(name: str, level: str = "INFO", log_dir: str = "logs") -> logging.
     log_path.mkdir(exist_ok=True, parents=True)
     
     # 通用格式化器
+    # formatter = logging.Formatter(
+    #     fmt='%(asctime)s - %(levelname)-8s - %(message)s',
+    #     datefmt='%m/%d/%Y %H:%M:%S'
+    # )
     formatter = logging.Formatter(
-        fmt='%(asctime)s - %(levelname)-8s - %(message)s',
-        datefmt='%m/%d/%Y %H:%M:%S'
+        fmt='%(message)s',
     )
     
     # 控制台处理器 - 使用自定义的TqdmLoggingHandler输出到stderr
