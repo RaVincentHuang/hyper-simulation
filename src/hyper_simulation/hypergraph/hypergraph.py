@@ -265,6 +265,17 @@ class Hyperedge:
             # print(f"node index is {node.index}, hyperedge range is {self.start}-{self.end}")
             if node.index >= self.start and node.index <= self.end:
                 return node
+        # Fallback: 如果是因为跨文档合并导致 index 不匹配，返回第一个节点
+        # 警告：这可能会导致生成的句子文本不完全准确，但保证程序不崩溃
+        if vertex.nodes:
+            logger.warning(
+                f"Index mismatch in merged hyperedge: "
+                f"Vertex '{vertex.text()}' (nodes={[n.index for n in vertex.nodes]}), "
+                f"Hyperedge range [{self.start}-{self.end}], "
+                f"Desc: '{self.desc[:50]}...'"
+            )
+            return vertex.nodes[0]
+        
         assert False, f"Vertex does not contain a node in hyperedge range, Vertex nodes: {vertex.nodes}, Hyperedge range: {self.start}-{self.end}, Hyperedge is {self.desc}"
 
     def text(self) -> str:

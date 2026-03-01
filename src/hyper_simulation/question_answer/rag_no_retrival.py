@@ -1,4 +1,5 @@
 import json
+import re
 import jsonlines
 import argparse
 from tqdm import tqdm
@@ -693,27 +694,27 @@ def evaluate_answer(prediction: str, ground_truth: list | str) -> Dict[str, floa
 
 
 def postprocess_answer(answer: str) -> str:
-    """
-    后处理LLM生成的答案
+    if not answer:
+        return "unanswerable"
     
-    Args:
-        answer: 原始答案
-    
-    Returns:
-        处理后的答案
-    """
-    # 移除特殊标记
     answer = answer.replace("</s>", "").strip()
     
-    # 如果答案以空格开头，移除
-    if answer and answer[0] == " ":
-        answer = answer[1:]
+    # 优先提取 ### Final Answer: 后的内容（最高优先级）
+    final_answer_pattern = r"###\s*Final\s*Answer:\s*(.+?)(?:\n|$)"
+    match = re.search(final_answer_pattern, answer, re.IGNORECASE)
+    if match:
+        return match.group(1).strip(" .,;:!?\"'")
     
-    # 只保留第一段（如果有多段）
-    # if "\n\n" in answer:
-    #     answer = answer.split("\n\n")[0]
+    # 次选：提取最后一个单独成行的短答案
+    lines = answer.strip().split('\n')
+    for line in reversed(lines):
+        line = line.strip()
+        if line and len(line) < 100 and not any(k in line.lower() for k in 
+            ['step', 'reason', 'explain', 'note', 'context', 'paragraph']):
+            return line.strip(" .,;:!?\"'")
     
-    return answer.strip()
+    # 兜底：返回清洗后的全文
+    return answer.strip(" .,;:!?\"'")[:200]
 
 
 def run_rag_evaluation(
@@ -1074,7 +1075,7 @@ def main():
     parser.add_argument(
         '--temperature',
         type=float,
-        default=0.7,
+        default=0.1,
         help='LLM temperature parameter'
     )
     

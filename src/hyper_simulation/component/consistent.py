@@ -10,7 +10,7 @@ from hyper_simulation.component.embedding import get_embedding_batch, cosine_sim
 from hyper_simulation.utils.log import getLogger
 from tqdm import tqdm
 from hyper_simulation.utils.log import current_query_id
-# from tqdm.contrib.logging import logging_redirect_tqdm
+from hyper_simulation.hypergraph.union import MultiHopFusion
 
 def generate_instance_id(query: str) -> str:
     normalized = ''.join(query.split()).lower()
@@ -84,11 +84,10 @@ def consistent_detection(
     distance = get_distance(query_text, data_text)
     consistent_logger.info(f"Compute cosine distance: {distance:.4f}, threshold={distance_threshold}")
 
-    # 距离足够近 → 自动一致（注意：此处原逻辑 return False 表示“无矛盾”，但语义易混淆）
     if distance <= distance_threshold:
         evidence = f"[CONSISTENT] Distance={distance:.4f} ≤ threshold={distance_threshold}"
         consistent_logger.info(evidence)
-        return False, evidence  # False = no contradiction
+        return False, evidence
 
     # Step 2: 执行 hyper simulation
     consistent_logger.debug("Running hyper_simulation...")
@@ -109,12 +108,10 @@ def consistent_detection(
     evidence_lines = []
     has_contradiction = False
 
-    # 构建 reverse map: sim_q_id → q_vertex
     sim_id_to_q_vertex = {sim_id: q_vertices_map[sim_id] for sim_id in q_vertices_map}
 
     for q_vertex in critical_q_vertices:
         matched = False
-        # 查找该 q_vertex 对应的 sim_id
         target_sim_id = None
         for sim_id, v in q_vertices_map.items():
             if v.id == q_vertex.id:
@@ -130,7 +127,6 @@ def consistent_detection(
             has_contradiction = True
             evidence_lines.append(f"Q vertex unmatched in D: '{q_vertex.text()}' (ID={q_vertex.id})")
 
-    # 全量日志输出（无截断）
     if evidence_lines:
         consistent_logger.info("Unmatched critical vertices in Q:")
         for line in evidence_lines:
@@ -138,7 +134,6 @@ def consistent_detection(
     else:
         consistent_logger.info("All critical Q vertices are matched in D.")
 
-    # 生成最终证据
     if has_contradiction:
         evidence = (
             f"[CONTRADICTION] Distance={distance:.4f} > threshold={distance_threshold}\n"
@@ -154,24 +149,80 @@ def consistent_detection(
     return has_contradiction, evidence
 
 
-def query_fixup(query: QueryInstance, dataset_name: str = "hotpotqa") -> QueryInstance:
+def query_fixup(query: QueryInstance, dataset_name: str = "hotpotqa", base_dir: str = "data/hypergraph") -> QueryInstance:
     """
-    基于hyper simulation的一致性修复
+    基于 hyper simulation 的一致性修复
     """
-    query_hg, data_hgs = load_hypergraphs_for_instance(query, dataset_name)
+    query_hg, data_hgs = load_hypergraphs_for_instance(query, dataset_name, base_dir=base_dir)
+    consistent_logger = getLogger("consistency", level="DEBUG")
     hg_logger = getLogger("hypergraph", level="DEBUG")
+
+    consistent_logger.info(f"[QueryFixup] Enter query_fixup for dataset: {dataset_name}")
+    consistent_logger.info(f"[QueryFixup] Query: '{query}'")
+    consistent_logger.info(f"[QueryFixup] Evidence count: {len(query.data)}")
     hg_logger.debug(f"=== Query Text===")
     hg_logger.debug(f"{query.query}")
     hg_logger.debug(f"=== Query Hypergraph===")
     query_hg.log_summary(hg_logger)
+    
     for i, d in enumerate(data_hgs):
         if d:
             hg_logger.debug(f"=== Query Text #{i}===")
             hg_logger.debug(f"{query.data[i]}")
             hg_logger.debug(f"=== Data Hypergraph #{i} ===")
             d.log_summary(hg_logger)
+
+    # Check if we should use Multi-hop Fusion
+    multi_hop_tasks = {"hotpotqa", "musique", "multihop"}
+    
+    if dataset_name in multi_hop_tasks:
+        fusion = MultiHopFusion()
+        valid_data_hgs = [hg for hg in data_hgs if hg is not None]
+        valid_indices = [i for i, hg in enumerate(data_hgs) if hg is not None]
+        valid_hgs = [data_hgs[i] for i in valid_indices]
+        valid_texts = [query.data[i] for i in valid_indices]
+        
+        consistent_logger.info(f"[Multi-hop] Valid hypergraphs: {len(valid_hgs)} / {len(data_hgs)}")
+        
+        if not valid_hgs:
+            consistent_logger.warning("[Multi-hop] No valid hypergraphs, fallback to original data")
+            query.fixed_data = query.data
+            return query
+            
+        # merge
+        consistent_logger.debug("[Multi-hop] Running MultiHopFusion process...")
+        is_consistent, context = fusion.process(query_hg, valid_hgs, valid_texts)
+        
+        # 一致性结果
+        consistent_logger.info(f"[Multi-hop] Consistency Result: {'CONSISTENT' if is_consistent else 'INCONSISTENT/PARTIAL'}")
+        
+        # 解析使用的证据来源
+        active_sources = set()
+        for line in context.split("\n"):
+            if line.startswith("[") and "] USED:" in line:
+                try:
+                    source_id = int(line.split("]")[0].replace("[", ""))
+                    active_sources.add(source_id)
+                except:
+                    pass
+        
+        consistent_logger.info(f"[Multi-hop] Active evidence sources: {sorted(active_sources)}")
+        consistent_logger.info(f"[Multi-hop] Unused evidence sources: {sorted(set(range(len(valid_texts))) - active_sources)}")
+        
+        # ✅ 日志：fixed_data 生成
+        query.fixed_data = [context]
+        consistent_logger.info(f"[Multi-hop] fixed_data generated: 1 item, {len(context)} chars")
+        consistent_logger.debug(f"[Multi-hop] fixed_data preview:\n{context}")
+        
+        return query
+
+    # 原有单文档一致性检测逻辑
+    consistent_logger.info(f"[Single-hop] Processing single-document consistency for {len(query.data)} documents")
     
     fixed_data = []
+    consistent_count = 0
+    inconsistent_count = 0
+    
     for doc_text, data_hg in tqdm(zip(query.data, data_hgs), desc='\tHyper Simulation for Query.', leave=True):
         if data_hg is None:
             fixed_data.append(doc_text)
@@ -182,15 +233,20 @@ def query_fixup(query: QueryInstance, dataset_name: str = "hotpotqa") -> QueryIn
         )
         
         if has_contradiction:
+            inconsistent_count += 1
             fixed_doc = (
                 f"{doc_text}\n\n"
                 f"[INCONSISTENT DETECTED - USE WITH CAUTION]\n"
                 f"Evidence:\n{evidence}"
             )
         else:
+            consistent_count += 1
             fixed_doc = doc_text
         
         fixed_data.append(fixed_doc)
+
+    consistent_logger.info(f"[Single-hop] Processing completed: {consistent_count} consistent, {inconsistent_count} inconsistent")
+    consistent_logger.info(f"[Single-hop] fixed_data generated: {len(fixed_data)} items")
     
     query.fixed_data = fixed_data
     return query

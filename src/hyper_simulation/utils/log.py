@@ -26,7 +26,7 @@ class TqdmLoggingHandler(logging.StreamHandler):
         except Exception:
             self.handleError(record)
 
-def getLogger(name: str, level: str = "INFO", log_dir: str = "logs") -> logging.Logger:
+def getLogger(name: str, level: str = "INFO", log_dir: str = "logs_1") -> logging.Logger:
     """
     配置全局日志：Tqdm控制台兼容 + 轮转文件
     使用stderr进行日志输出，确保不与tqdm进度条混乱

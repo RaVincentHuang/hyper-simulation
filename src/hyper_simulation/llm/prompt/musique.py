@@ -5,17 +5,27 @@ MUSIQUE_QA_BASE = """### Context:
 {question}
 
 ### Instructions:
-You are given multiple paragraphs. The question may require multi-hop reasoning.
-Follow these steps internally:
-1) Identify which paragraphs contain relevant clues.
-2) Combine information across paragraphs to derive the final answer.
-3) If multiple facts are needed, ensure the chain of reasoning is consistent.
+This is a multi-hop reasoning question. You need to combine information from multiple paragraphs.
 
-Answering rules:
-- Output a concise final answer only (no explanation).
-- If the answer is a short phrase or entity, output only that.
-- If the answer is a number or date, output only the value.
-- If the question is unanswerable from the context, output "unanswerable".
+Please follow these steps:
 
-### Answer:
+**Step 1: Identify relevant paragraphs**
+- List which paragraphs contain information related to the question
+- Quote the key sentences
+
+**Step 2: Break down the question**
+- Identify sub-questions that need to be answered first
+- Solve each sub-question using the context
+
+**Step 3: Combine the information**
+- Connect the answers from sub-questions to derive the final answer
+- Check for consistency across paragraphs
+
+**Step 4: Output the final answer**
+- After your reasoning, output the final answer in this exact format:
+  ### Final Answer: <your answer>
+- If the answer cannot be determined from the context, output:
+  ### Final Answer: unanswerable
+
+### Response:
 """

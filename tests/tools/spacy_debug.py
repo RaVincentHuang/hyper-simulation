@@ -152,7 +152,7 @@ def debug_text_to_hypergraph(
 
 
 if __name__ == "__main__":
-    text = """Huguenots. The French Protestant Church of London was established by Royal Charter in 1550. It is now located at Soho Square. Huguenot refugees flocked to Shoreditch, London. They established a major weaving industry in and around Spitalfields (see Petticoat Lane and the Tenterground) in East London. In Wandsworth, their gardening skills benefited the Battersea market gardens. The Old Truman Brewery, then known as the Black Eagle Brewery, was founded in 1724. The flight of Huguenot refugees from Tours, France drew off most of the workers of its great silk mills which they had built.[citation needed] Some of these immigrants moved to Norwich, which had accommodated an earlier settlement of Walloon weavers. The French added to the existing immigrant population, then comprising about a third of the population of the city."""
+    text = """Because generating subsequent steps fundamentally relies on previous context, modeling these dependencies is essential for capturing the true logic of LLM reasoning."""
     
     parser = ArgumentParser(description="Debug spaCy dependency pipeline steps.")
     parser.add_argument("--output-dir", type=str, default="logs/dep_debug")
