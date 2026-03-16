@@ -96,7 +96,7 @@ def load_hotpotqa_data(file_path: str) -> List[Dict[str, Any]]:
     return data
 
 
-def load_musique_data(file_path: str) -> List[Dict[str, Any]]:
+def load_musique_data(file_path: str, use_supporting_only: bool = True) -> List[Dict[str, Any]]:
     """
     加载MuSiQue数据集（jsonl）
 
@@ -133,14 +133,15 @@ def load_musique_data(file_path: str) -> List[Dict[str, Any]]:
                 supporting_flags = []
 
                 for p in paragraphs:
+                    is_supporting = bool(p.get("is_supporting", False))
+                    if use_supporting_only and not is_supporting:
+                        continue  # 跳过非支持段落
                     title = (p.get("title") or "").strip()
                     paragraph_text = (p.get("paragraph_text") or "").strip()
 
                     if title or paragraph_text:
                         context.append((title, [paragraph_text] if paragraph_text else []))
-                        is_supporting = bool(p.get("is_supporting", False))
                         supporting_flags.append(is_supporting)
-
                         if is_supporting and title:
                             supporting_titles.append(title)
                             supporting_sent_ids.append(0)
@@ -547,14 +548,14 @@ def load_legalbench_scalr_data(file_path: str) -> List[Dict[str, Any]]:
     return data
 
 
-def load_data(file_path: str, task: str = "hotpotqa") -> List[Dict[str, Any]]:
+def load_data(file_path: str, task: str = "hotpotqa", use_supporting_only: bool = False) -> List[Dict[str, Any]]:
     """
     通用数据加载接口，支持不同任务的数据集
     """
     if task == "hotpotqa":
         return load_hotpotqa_data(file_path)
     elif task == "musique":
-        return load_musique_data(file_path)
+        return load_musique_data(file_path, use_supporting_only)
     elif task == "multihop":
         return load_multihop_data(file_path)
     elif task == "qa/contract":
@@ -719,14 +720,15 @@ def postprocess_answer(answer: str) -> str:
 
 def run_rag_evaluation(
     data_path: str,
-    model_name: str = "qwen2.5:14b",
+    model_name: str = "qwen3.5:9b",
     output_path: str = "",
     batch_size: int = 5,
     temperature: float = 0.7,
     task: str = "hotpotqa",
     method: str = "vanilla",
     build: bool = True,
-    rebuild: bool = False
+    rebuild: bool = False,
+    using_support_only: bool = False
 ):
     """
     运行RAG评估任务
@@ -742,7 +744,7 @@ def run_rag_evaluation(
         build: 判断是否已经转了超图
     """
     print(f"Loading data from {data_path}...")
-    data: List[Dict[str, Any]] = load_data(data_path, task)
+    data: List[Dict[str, Any]] = load_data(data_path, task, using_support_only)
     
     print(f"Loaded {len(data)} samples")
     print(f"Initializing LLM: {model_name}")
@@ -751,7 +753,7 @@ def run_rag_evaluation(
         from langchain_ollama import ChatOllama
         from hyper_simulation.llm.chat_completion import get_generate
         # 初始化LLM
-        model = ChatOllama(model=model_name, temperature=temperature, top_p=0.95)
+        model = ChatOllama(model=model_name, temperature=temperature, top_p=0.95, reasoning=False, timeout=300)
     
     results = []
     all_metrics = {
@@ -976,7 +978,7 @@ def run_rag_evaluation(
             # 记录结果
             result = {
                 "prediction": processed_pred,
-                "ground_truth": item.answers,
+                "reference_answer": item.answers,
                 "metrics": metrics,
             }
             results.append(result)
@@ -1057,7 +1059,7 @@ def main():
     parser.add_argument(
         '--model_name',
         type=str,
-        default='qwen2.5:14b',
+        default='qwen3.5:9b',
         help='LLM model name for Ollama'
     )
     parser.add_argument(
@@ -1106,10 +1108,17 @@ def main():
         help='Whether to rebuild hypergraph (default: False). Set to True to rebuild hypergraph before evaluation.'
     )
 
+    parser.add_argument(
+        '--using_support_only',
+        action='store_true',
+        help='Whether to use supporting paragraphs only (default: False). Set to True to use only supporting paragraphs.'
+    )
+
     args = parser.parse_args()
     build_flag = args.build == False
     rebuild_flag = args.rebuild == True
-    # rebuild_flag = args.rebuild == True
+    using_support_only_flag = args.using_support_only == True
+
     # 运行评估
     run_rag_evaluation(
         data_path=args.data_path,
@@ -1120,7 +1129,8 @@ def main():
         method=args.method,
         task=args.task,
         build=build_flag,
-        rebuild=rebuild_flag
+        rebuild=rebuild_flag,
+        using_support_only=using_support_only_flag,
     )
 
 

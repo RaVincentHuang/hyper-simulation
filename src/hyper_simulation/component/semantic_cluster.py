@@ -5,10 +5,12 @@ from hyper_simulation.hypergraph.hypergraph import Hyperedge, Hypergraph, Node, 
 from hyper_simulation.hypergraph.dependency import Pos, Dep, Entity
 import numpy as np
 import logging
-from pathlib import Path
-from hyper_simulation.component.embedding import get_embedding_batch, cosine_similarity, get_similarity_batch, get_similarity
+from hyper_simulation.component.embedding import get_embedding_batch, get_cosine_similarity_batch, get_similarity_batch, get_similarity
 from hyper_simulation.component.nli import get_nli_label, get_nli_labels_batch
 from hyper_simulation.utils.log import getLogger
+from hyper_simulation.component.denial import get_top_k_matched_vertices
+
+from hyper_simulation.hypergraph.path import find_shortest_hyperpaths, find_shortest_hyperpaths_local
 
 def abstraction_lca(query: list[str], data: list[str]) -> tuple[str, int]:
     """
@@ -44,9 +46,9 @@ def _hyperedge_signature(hyperedge: Hyperedge) -> tuple[int, int, int, str]:
     return (root_id, hyperedge.start, hyperedge.end, hyperedge.desc)
 
 
-def _path_sort_key(path: Path) -> tuple:
-    sig = [_hyperedge_signature(he) for he in path.hyperedges]
-    return (len(path.hyperedges), sig)
+# def _path_sort_key(path: Path) -> tuple:
+#     sig = [_hyperedge_signature(he) for he in path.hyperedges]
+#     return (len(path.hyperedges), sig)
 
 
 def _cluster_sort_key(cluster: 'SemanticCluster') -> tuple:
@@ -163,7 +165,7 @@ class TarjanLCA:
         return self.res
 
 class SemanticCluster:
-    def __init__(self, hyperedges: list[Hyperedge], doc: LocalDoc, is_query: bool=True) -> None:
+    def __init__(self, hyperedges: list[Hyperedge], doc: LocalDoc, is_query: bool=False) -> None:
         self.hyperedges = hyperedges
         self.doc = doc
         self.vertices: list[Vertex] = []
@@ -560,6 +562,214 @@ class SemanticCluster:
         if self.is_query != other.is_query:
             return False
         return self.signature() == other.signature()
+    
+def combine_hyperedges_to_cluster(hypergraph: Hypergraph) -> list[SemanticCluster]:
+    # 枚举所有的 hyperedge 我们不妨记为 root(child1, child2, ...)
+    # 如果 childi 的 POS 为 VERB 或 AUX，且 root 的 POS 不为 VERB 或 AUX，则认为 childi 是 root 的谓词补语
+    # 我们将 childi 作为 root 的 hyperedge 跟此 hyperedge 进行合并，形成一个新的 SemanticCluster
+    clusters: list[SemanticCluster] = []
+    
+    # TODO: USE MORE CONVINCED METHOD
+    root_to_hyperedge: dict[Node, Hyperedge] = {} # assume one root corresponds to one hyperedge for simplicity
+    for he in hypergraph.hyperedges:
+        root_node = he.current_node(he.root)
+        if root_node is None:
+            continue
+        root_to_hyperedge[root_node] = he
+    
+    hyperedge_visited: set[Hyperedge] = set()
+    
+    
+    # Rule 1: child: VERB/AUX + root: non-VERB/AUX -> combine into cluster
+    for he in hypergraph.hyperedges:
+        if he in hyperedge_visited:
+            continue
+        
+        root_node = he.current_node(he.root)
+        if root_node is None:
+            continue
+        
+        if root_node.pos in {Pos.VERB, Pos.AUX}:
+            continue
+        
+        # After that, root must be not a VERB/AUX, we check its children
+        
+        # children are vertices that not the he.vertices[0]
+        children = he.vertices[1:]
+        
+        descent_hyperedges = []
+        
+        for child_vertex in children:
+            child_node = he.current_node(child_vertex)
+            if child_node is None:
+                continue
+            
+            if child_node.pos in {Pos.VERB, Pos.AUX}:
+                # This child is a verb, we check if it has a corresponding hyperedge
+                child_he = root_to_hyperedge.get(child_node)
+                if child_he and child_he not in hyperedge_visited:
+                    # We combine he and child_he into a new cluster
+                    descent_hyperedges.append(child_he)
+                    hyperedge_visited.add(child_he)
+                    
+        if not descent_hyperedges:
+            continue
+        
+        # Create a cluster for he and its descent hyperedges
+        cluster_hyperedges = [he] + descent_hyperedges
+        clusters.append(SemanticCluster(cluster_hyperedges, hypergraph.doc, is_query=True))
+        hyperedge_visited.add(he)
+    
+    # Rule 2: Dep relcl: if a hyperedge's root has dep relcl then we combine it with its head hyperedge into a new cluster
+    for he in hypergraph.hyperedges:
+        root_node = he.current_node(he.root)
+        if root_node and root_node.dep == Dep.relcl and root_node.head:
+            head_he = root_to_hyperedge.get(root_node.head)
+            if head_he and head_he not in hyperedge_visited:
+                clusters.append(SemanticCluster([he, head_he], hypergraph.doc, is_query=True))
+                hyperedge_visited.add(he)
+                hyperedge_visited.add(head_he)
+    
+    # Rule 3: VERB/AUX-[advcl/ccomp]-VERB/AUX: if a hyperedge's root is VERB/AUX and it's dep is advcl/ccomp and its head is also VERB/AUX, then we combine it with its head hyperedge into a new cluster
+    for he in hypergraph.hyperedges:
+        root_node = he.current_node(he.root)
+        if root_node and root_node.pos in {Pos.VERB, Pos.AUX} and root_node.dep in {Dep.advcl, Dep.ccomp} and root_node.head and root_node.head.pos in {Pos.VERB, Pos.AUX}:
+            head_he = root_to_hyperedge.get(root_node.head)
+            if head_he and head_he not in hyperedge_visited:
+                clusters.append(SemanticCluster([he, head_he], hypergraph.doc, is_query=True))
+                hyperedge_visited.add(he)
+                hyperedge_visited.add(head_he)
+    
+    # Rule-last: all single SC
+    for he in hypergraph.hyperedges:
+        if he not in hyperedge_visited:
+            clusters.append(SemanticCluster([he], hypergraph.doc))
+    
+    return clusters
+
+# NEW IMPLEMENTATION FOR SEMANTIC CLUSTER PAIRS
+def calc_semantic_cluster_pairs(
+    hypergraph_q: Hypergraph, 
+    hypergraph_d: Hypergraph, 
+    matched_vertices: dict[Vertex, set[Tuple[Vertex, float]]], 
+    cluster_sim_threshold: float = 0.75, 
+    is_multihop: bool = False, 
+    logger: Optional[logging.Logger] = None
+) -> list[tuple[SemanticCluster, SemanticCluster, float, Vertex, Vertex]]:
+    
+    # ========== 入口日志 ==========
+    logger.info(f"[SemanticClusterPairs] Start: Q_edges={len(hypergraph_q.hyperedges)}, "
+                   f"D_edges={len(hypergraph_d.hyperedges)}, matched_vertices={len(matched_vertices)}, "
+                   f"threshold={cluster_sim_threshold}, multihop={is_multihop}")
+    
+    pairs: list[tuple[SemanticCluster, SemanticCluster, float, Vertex, Vertex]] = []
+    
+    # ========== Step 1: 构建查询侧语义簇 ==========
+    clusters_q = combine_hyperedges_to_cluster(hypergraph_q)
+    logger.info(f"[SemanticClusterPairs] Step1-Done: Generated {len(clusters_q)} query clusters from {len(hypergraph_q.hyperedges)} hyperedges")
+    
+    # ========== Step 2: 批量计算查询簇嵌入 ==========
+    calc_embedding_for_cluster_batch(clusters_q)
+    logger.info(f"[SemanticClusterPairs] Step2-Done: Computed embeddings for {len(clusters_q)} query clusters")
+    
+    # ========== Step 3: 获取 Top-K 匹配顶点 ==========
+    K_LIKELY = 5
+    likely_map = get_top_k_matched_vertices(matched_vertices, K_LIKELY)
+    matched_count = sum(len(v) for v in likely_map.values())
+    logger.info(f"[SemanticClusterPairs] Step3-Done: likely_map built with {len(likely_map)} source vertices, "
+                   f"{matched_count} total matches (K={K_LIKELY})")
+    
+    # ========== Step 4: 生成候选顶点对 ==========
+    vertices_pairs_need_path: list[tuple[Vertex, Vertex]] = []
+    vertices_pairs_to_sc: dict[tuple[Vertex, Vertex], list[SemanticCluster]] = {}
+    
+    pair_gen_start = time.time() if logger else None  # 仅用于计时，不改变逻辑
+    
+    for sc_q in clusters_q:
+        vertices_d_pairs: set[tuple[Vertex, Vertex]] = set()
+        for u in sc_q.get_vertices():
+            for u_prime in sc_q.get_vertices():
+                if u == u_prime:
+                    continue
+                if Vertex.is_both_verb(u, u_prime):
+                    continue
+                
+                for v, score_v in likely_map.get(u, set()):
+                    for v_prime, score_v_prime in likely_map.get(u_prime, set()): 
+                        if v == v_prime:
+                            continue
+                        if Vertex.is_both_verb(v, v_prime):
+                            continue
+                        
+                        vertices_d_pairs.add((v, v_prime))
+        
+        for pair in vertices_d_pairs:
+            vertices_pairs_to_sc.setdefault(pair, []).append(sc_q)
+            vertices_pairs_need_path.append(pair)
+    
+    if logger and pair_gen_start is not None:
+        pair_gen_time = time.time() - pair_gen_start
+        unique_pairs = len(set(vertices_pairs_need_path))
+        logger.info(f"[SemanticClusterPairs] Step4-Done: Generated {len(vertices_pairs_need_path)} raw pairs, "
+                   f"{unique_pairs} unique pairs, {len(vertices_pairs_to_sc)} pairs mapped to clusters, "
+                   f"time={pair_gen_time:.2f}s")
+    
+    # ========== Step 5: 去重并执行路径搜索 ==========
+    vertices_pairs_need_path = list(set(vertices_pairs_need_path))
+    logger.info(f"[SemanticClusterPairs] Step5-Start: Path search for {len(vertices_pairs_need_path)} unique vertex pairs "
+                   f"(method={'local' if is_multihop else 'global'})")
+    path_search_start = time.time()
+    
+    if is_multihop:
+        path_map = find_shortest_hyperpaths_local(hypergraph_d, vertices_pairs_need_path)
+    else:
+        path_map = find_shortest_hyperpaths(hypergraph_d, vertices_pairs_need_path)
+
+    path_search_time = time.time() - path_search_start
+    reachable = sum(1 for p in path_map.values() if p)
+    logger.info(f"[SemanticClusterPairs] Step5-Done: Path search completed in {path_search_time:.2f}s, "
+                f"reachable={reachable}/{len(path_map)} pairs")
+    
+    # ========== Step 6: 构建文档侧语义簇候选 ==========
+    sc_pairs_candidates: list[tuple[SemanticCluster, SemanticCluster]] = []
+    sc_d_candidates: list[SemanticCluster] = []
+    
+    for (v, v_prime), scs in vertices_pairs_to_sc.items():
+        path = path_map.get((v, v_prime), [])
+        for sc_q in scs:
+            sc_d = SemanticCluster(path, hypergraph_d.doc)
+            sc_pairs_candidates.append((sc_q, sc_d))
+            sc_d_candidates.append(sc_d)
+    
+    
+    logger.info(f"[SemanticClusterPairs] Step6-Done: Built {len(sc_pairs_candidates)} candidate cluster pairs, {len(sc_d_candidates)} document clusters to embed")
+    
+    # ========== Step 7: 批量计算文档簇嵌入 ==========
+    calc_embedding_for_cluster_batch(sc_d_candidates)
+    logger.info(f"[SemanticClusterPairs] Step7-Done: Computed embeddings for {len(sc_d_candidates)} document clusters")
+    
+    # ========== Step 8: 相似度计算与过滤 ==========
+    filter_start = time.time()
+    sim_embedding_pairs = [ (sc_q.embedding, sc_d.embedding) for sc_q, sc_d in sc_pairs_candidates]
+    
+    if sim_embedding_pairs:
+        sim_scores = get_cosine_similarity_batch(sim_embedding_pairs, is_normalized=True)
+    else:
+        sim_scores = []
+    passed_count = 0
+    for (sc_q, sc_d), sim_score in zip(sc_pairs_candidates, sim_scores):
+        assert sc_q.embedding is not None and sc_d.embedding is not None, "Embedding should have been calculated"    
+        if sim_score >= cluster_sim_threshold:
+            pairs.append((sc_q, sc_d, sim_score))
+            passed_count += 1
+    
+    filter_time = time.time() - filter_start
+    logger.info(f"[SemanticClusterPairs] Step8-Done: Filtered {passed_count}/{len(sc_pairs_candidates)} pairs "
+                f"by threshold={cluster_sim_threshold}, time={filter_time:.2f}s")
+    
+    # ========== 出口日志 ==========
+    logger.info(f"[SemanticClusterPairs] Return: {len(pairs)} final semantic cluster pairs")
+    return pairs
 
 # --- 辅助函数：构建顶点的后代簇（找依存树上根的节点，max_hops 跳内）---
 def build_descendant_cluster(
@@ -1147,3 +1357,4 @@ def get_d_match(sc1: SemanticCluster, sc2: SemanticCluster, score_threshold: flo
 # 3. 交叉 
 
 # 结合四个通道取个值
+

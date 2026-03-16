@@ -1,3 +1,4 @@
+from hmac import new
 from typing import List, Dict, Set, Tuple, Any, Optional
 import itertools
 from collections import defaultdict
@@ -111,6 +112,7 @@ class MultiHopFusion:
         
         total_vertices_before = 0
         total_hyperedges_before = 0
+        hyperedge_from_hypergraph: Dict[Hyperedge, int] = {}
         
         for i, hg in enumerate(evidence_hypergraphs):
             if hg is None:
@@ -131,6 +133,8 @@ class MultiHopFusion:
                 if self._is_valid_node(vertex):
                     valid_vertex_ids.append(vid)
             all_hyperedges.extend(hg.hyperedges)
+            for he in hg.hyperedges:
+                hyperedge_from_hypergraph[he] = i
 
         self.fusion_logger.info(f"[Merge] Total vertices before fusion: {total_vertices_before}")
         self.fusion_logger.info(f"[Merge] Valid vertices for fusion (after filtering): {len(valid_vertex_ids)}")
@@ -221,6 +225,7 @@ class MultiHopFusion:
                     new_vertex_provenance[new_id_counter].add(vertex_source_map[vid])
             
             new_v = Vertex(new_id_counter, combined_nodes)
+            new_v.set_provenance(new_vertex_provenance[new_id_counter])  # 设置来源信息
             new_vertices.append(new_v)
             
             for vid in group_ids:
@@ -244,6 +249,7 @@ class MultiHopFusion:
                 if nv and nv not in new_he_vertices:
                     new_he_vertices.append(nv)
             new_he = Hyperedge(new_root, new_he_vertices, he.desc, he.full_desc, he.start, he.end)
+            new_he.set_hypergraph_id(hyperedge_from_hypergraph.get(he, None))  # 记录来源超图 ID
             new_hyperedges.append(new_he)
 
         merged_hg = Hypergraph(new_vertices, new_hyperedges, None)

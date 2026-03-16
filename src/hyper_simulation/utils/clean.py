@@ -3,13 +3,19 @@ import re
 def clean_text_for_spacy(text: str) -> str:
     if not text:
         return ""
+
+    # 1. 去除注释标记，形如 [n 123]
+    text = re.sub(r'\[n\s+\d+\]', '', text)
     
-    # 1. 将所有类型的空白字符（包括转义字符、全角空格、不换行空格）替换为标准半角空格
+    # 2. 将所有类型的空白字符（包括转义字符、全角空格、不换行空格）替换为标准半角空格
     # \s 在正则中匹配 [ \t\n\r\f\v] 以及 Unicode 定义的所有空格
     text = re.sub(r'\s+', ' ', text)
     
-    # 2. 去除首尾空格
+    # 3. 去除首尾空格
     text = text.strip()
+    
+    # 4. 处理替换非标准连字符（如全角连字符、长破折号等）为标准半角连字符 '-' 例如 –
+    text = re.sub(r'[–—―]', '-', text)
     
     return text
 

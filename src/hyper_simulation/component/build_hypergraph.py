@@ -13,8 +13,11 @@ from fastcoref import spacy_component
 from hyper_simulation.query_instance import QueryInstance
 from hyper_simulation.hypergraph.hypergraph import Hypergraph as LocalHypergraph
 from hyper_simulation.hypergraph.dependency import Node, LocalDoc, Dependency
-from hyper_simulation.hypergraph.combine import combine, calc_correfs_str
+from hyper_simulation.hypergraph.combine import combine, calc_correfs_str, combine_links
 from hyper_simulation.utils.clean import clean_text_for_spacy
+
+from hyper_simulation.hypergraph.corref import CorrefCluster, mark_corref
+from spacy.symbols import ORTH
 
 _NLP: Optional[spacy.Language] = None
 
@@ -69,6 +72,13 @@ def get_nlp() -> spacy.Language:
         if 'fastcoref' not in _NLP.pipe_names:
             local_model_path = "/home/vincent/.cache/huggingface/hub/models--biu-nlp--lingmess-coref/snapshots/fa5d8a827a09388d03adbe9e800c7d8c509c3935"
             _NLP.add_pipe('fastcoref', config={ 'model_architecture': 'LingMessCoref', 'model_path': local_model_path, 'device': 'cpu'})
+    
+    # Tokenizer: special cases
+    # R1: I. => I .  (防止把 "I." 误识别为一个token，导致 "I" 的lemma无法正确识别为 "I")
+    _NLP.tokenizer.add_special_case("I.", [{ORTH: "I"}, {ORTH: "."}])
+    ROMAN_NUMERALS = ["II", "III", "IV", "VI", "VII", "VIII", "IX", "XI", "XII"]
+    for numeral in ROMAN_NUMERALS:
+        _NLP.tokenizer.add_special_case(f"{numeral}.", [{ORTH: numeral}, {ORTH: "."}])
     return _NLP
 
 def text_to_doc(text: str) -> Doc:
@@ -78,11 +88,19 @@ def text_to_doc(text: str) -> Doc:
 
 def doc_to_hypergraph(doc: Doc, text: str, is_query: bool = False) -> LocalHypergraph:
     correfs = calc_correfs_str(doc) if hasattr(doc._, "coref_clusters") else set()
-    spans_to_merge = combine(doc, correfs, is_query=is_query)
+    
+    links_to_merge = combine_links(doc)
+    with doc.retokenize() as retokenizer:
+        for link in links_to_merge:
+            retokenizer.merge(link)
+    corref_clusters = CorrefCluster.from_doc(doc)
+    spans_to_merge = combine(doc, correfs, is_query=is_query, corefs_clusters=corref_clusters)
     with doc.retokenize() as retokenizer:
         for span in spans_to_merge:
             retokenizer.merge(span)
+    corref_clusters = CorrefCluster.update_by_doc(corref_clusters, doc)
     nodes, roots = Node.from_doc(doc)
+    nodes = mark_corref(nodes, corref_clusters)
     local_doc = LocalDoc(doc)
     dep = Dependency(nodes, roots, local_doc, is_query=is_query)
     vertices, rels, id_map = (

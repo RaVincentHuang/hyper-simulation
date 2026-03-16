@@ -743,8 +743,9 @@ def run_hypergraph_build(
                 query_instance = QueryInstance(
                     query=item["question"],
                     data=[
-                        f"{title}.\n" + "\n".join(sentences)
-                        for title, sentences in item["context"]
+                        # f"{title}.\n" + "\n".join(sentences)
+                        f"\n".join(sentences)
+                        for _, sentences in item["context"]
                     ],
                     fixed_data=[],
                     answers=answers,

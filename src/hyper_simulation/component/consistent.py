@@ -173,7 +173,7 @@ def query_fixup(query: QueryInstance, dataset_name: str = "hotpotqa", base_dir: 
             d.log_summary(hg_logger)
 
     # Check if we should use Multi-hop Fusion
-    multi_hop_tasks = {"hotpotqa", "musique", "multihop"}
+    multi_hop_tasks = {"musique", "multihop"}
     
     if dataset_name in multi_hop_tasks:
         fusion = MultiHopFusion()

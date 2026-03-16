@@ -1,6 +1,9 @@
 from spacy.tokens import Doc, Span, Token
 from nltk.collocations import BigramCollocationFinder
 from nltk.metrics import BigramAssocMeasures
+from spacy.util import filter_spans
+
+from hyper_simulation.hypergraph.corref import CorrefCluster
 
 def get_level_order(doc: Doc, reversed=False) -> list[Token]:
     levels: dict[int, list[Token]] = {}
@@ -157,54 +160,122 @@ def _calc_bigram_likelihood_scores(doc: Doc) -> dict[tuple[str, str], float]:
     scored = finder.score_ngrams(BigramAssocMeasures.likelihood_ratio)
     return {pair: score for pair, score in scored}
     
+def combine_links(doc: Doc) -> list[Span]:
+    links_to_merge: list[Span] = []
+    links_token_idxs: set[int] = set()
+    
+    for token in doc:
+        # if token equals '-' alone, combine with left and right 
+        if token.text == "-" :
+            if token.i - 1 >= 0 and token.i + 1 < len(doc):
+                left_token, right_token = doc[token.i - 1], doc[token.i + 1]
+                if left_token.dep_ == "conj" or right_token.dep_ == "conj":
+                    continue
+                span = doc[token.i - 1:token.i + 2]
+                if links_token_idxs.intersection(range(span.start, span.end)):
+                    continue
+                links_to_merge.append(span)
+                links_token_idxs.update(range(span.start, span.end))
+        
+        # if token end with '-' then combine with the right
+        elif token.text.endswith("-") and token.i + 1 < len(doc):
+            span = doc[token.i:token.i + 2]
+            if links_token_idxs.intersection(range(span.start, span.end)):
+                continue
+            links_to_merge.append(span)
+            links_token_idxs.update(range(span.start, span.end))
+        
+        # if token start with '-' then combine with the left
+        elif token.text.startswith("-") and token.i - 1 >= 0:
+            span = doc[token.i - 1:token.i + 1]
+            if links_token_idxs.intersection(range(span.start, span.end)):
+                continue
+            links_to_merge.append(span)
+            links_token_idxs.update(range(span.start, span.end))
+            
+    # Update the doc's entities to include the merged links if they overlap with existing entities
+    new_ents = []
+    for ent in doc.ents:
+        span_start = ent.start
+        span_end = ent.end
+        
+        # Extend entity by links if [span_start:span_end] has intersection with links_to_merge
+        for link_span in links_to_merge:
+            if not (link_span.end <= span_start or link_span.start >= span_end):
+                # merge spans
+                new_start = min(span_start, link_span.start)
+                new_end = max(span_end, link_span.end)
+                span_start = new_start
+                span_end = new_end
+        
+        new_ent = Span(doc, span_start, span_end, label=ent.label_)
+        new_ents.append(new_ent)
+    
+    doc.set_ents(filter_spans(new_ents), default="unmodified")
+    
+    return links_to_merge
 
-def combine(doc: Doc, correfs: set[str]=set(), is_query: bool = False) -> list[Span]:
-    spans_to_merge = []
+def combine(doc: Doc, correfs: set[str]=set(), is_query: bool = False, corefs_clusters: list[CorrefCluster] = []) -> list[Span]:
+    spans_to_merge: list[Span] = []
     ent_token_idxs: set[int] = set()
     bigram_lr_scores = _calc_bigram_likelihood_scores(doc)
     lr_threshold = 8.0
 
     # Correferences
-    token_map = _calc_same_tokens(doc, correfs)
-    # print(f"Correfs: {correfs}")
-    # print(f"Token map: {token_map}")
-    for span_text, positions in token_map.items():
-        # print(f"Considering coreference span: {span_text}")
-        for start, end in positions:
-            span = doc[start:end]
-            if ent_token_idxs.intersection(range(span.start, span.end)):
-                continue
-            # print(f"Considering coreference span: {span.text}")
-            spans_to_merge.append(span)
-            ent_token_idxs.update(range(span.start, span.end))
+    # token_map = _calc_same_tokens(doc, correfs)
+    # # print(f"Correfs: {correfs}")
+    # # print(f"Token map: {token_map}")
+    # for span_text, positions in token_map.items():
+    #     # print(f"Considering coreference span: {span_text}")
+    #     for start, end in positions:
+    #         span = doc[start:end]
+    #         if ent_token_idxs.intersection(range(span.start, span.end)):
+    #             continue
+    #         # print(f"Considering coreference span: {span.text}")
+    #         spans_to_merge.append(span)
+    #         ent_token_idxs.update(range(span.start, span.end))
     
-    # - linked phrases
-    for token in doc:
-        # if token equals '-' alone, combine with left and right
-        if token.pos_ == "PUNCT" and token.text == "-" :
-            if token.i - 1 >= 0 and token.i + 1 < len(doc):
-                span = doc[token.i - 1:token.i + 2]
-                if ent_token_idxs.intersection(range(span.start, span.end)):
-                    continue
-                spans_to_merge.append(span)
-                ent_token_idxs.update(range(span.start, span.end))
+    # links_to_merge: list[Span] = []
+    # links_token_idxs: set[int] = set()
+    
+    # # - linked phrases
+    # for token in doc:
+    #     # if token equals '-' alone, combine with left and right 
+    #     if token.text == "-" :
+    #         if token.i - 1 >= 0 and token.i + 1 < len(doc):
+    #             left_token, right_token = doc[token.i - 1], doc[token.i + 1]
+    #             if left_token.dep_ == "conj" or right_token.dep_ == "conj":
+    #                 continue
+    #             span = doc[token.i - 1:token.i + 2]
+    #             # print(f"Considering link span: {span}")
+    #             if links_token_idxs.intersection(range(span.start, span.end)):
+    #                 continue
+    #             links_to_merge.append(span)
+    #             links_token_idxs.update(range(span.start, span.end))
         
-        # if token end with '-' then combine with the right
-        elif token.text.endswith("-") and token.i + 1 < len(doc):
-            span = doc[token.i:token.i + 2]
-            if ent_token_idxs.intersection(range(span.start, span.end)):
-                continue
-            spans_to_merge.append(span)
-            ent_token_idxs.update(range(span.start, span.end))
+    #     # if token end with '-' then combine with the right
+    #     elif token.text.endswith("-") and token.i + 1 < len(doc):
+    #         span = doc[token.i:token.i + 2]
+    #         if links_token_idxs.intersection(range(span.start, span.end)):
+    #             continue
+    #         links_to_merge.append(span)
+    #         links_token_idxs.update(range(span.start, span.end))
         
-        # if token start with '-' then combine with the left
-        elif token.text.startswith("-") and token.i - 1 >= 0:
-            span = doc[token.i - 1:token.i + 1]
-            if ent_token_idxs.intersection(range(span.start, span.end)):
-                continue
-            spans_to_merge.append(span)
-            ent_token_idxs.update(range(span.start, span.end))
-            
+    #     # if token start with '-' then combine with the left
+    #     elif token.text.startswith("-") and token.i - 1 >= 0:
+    #         span = doc[token.i - 1:token.i + 1]
+    #         if links_token_idxs.intersection(range(span.start, span.end)):
+    #             continue
+    #         links_to_merge.append(span)
+    #         links_token_idxs.update(range(span.start, span.end))
+    
+
+    # # Print All links_to_merge
+    # for span in links_to_merge:
+    #     print(f"Link span to merge: '{span.text}' ({span.start}, {span.end})")
+    
+    new_ents = []
+    
     # Entities
     for ent in doc.ents:
         if ent.label_ in {"ORDINAL", "CARDINAL"} and len(ent) == 1:
@@ -212,9 +283,68 @@ def combine(doc: Doc, correfs: set[str]=set(), is_query: bool = False) -> list[S
         if ent_token_idxs.intersection(range(ent.start, ent.end)):
             continue
         # print(f"Merging entity span: {ent.text}")
-        spans_to_merge.append(ent)
-        ent_token_idxs.update(range(ent.start, ent.end))
+        
+        # Extend entity span to include compound deps
+        span_start = ent.start
+        span_end = ent.end
+        
+        def is_compound_to_ent(token: Token, ent: Span):
+            # True if token is a compound to a token in the entity, or a token in the entity is a compound to it
+            if token.dep_ == "compound" and token.head in ent: # token -compound-> ent
+                return True
+            # for child in token.children: # ent -compound-> token
+            #     if child.dep_ == "compound" and child in ent:
+            #         return True
+            return False
+        
+        # Extend left, if the left token is a compound to a token in the ent, or a token in ent is a compound to it.
+        for i in range(ent.start - 1, -1, -1):
+            if is_compound_to_ent(doc[i], ent):
+                # Set the doc[i]'s entity type to ent_type
+                span_start = i
+            else:
+                break
+        # Extend right, if the right token is a compound to a token in the ent, or a token in ent is a compound to it.
+        for i in range(ent.end, len(doc)):
+            if is_compound_to_ent(doc[i], ent):
+                span_end = i + 1
+            else:
+                break
+            
+        # Extend entity by links if [span_start:span_end] has intersection with links_to_merge
+        # update the span_start and span_end to include the whole link span
+        # Last, delete the link span in links_to_merge and links_token_idxs if it is merged
+        # deleted_links = []
+        # if links_token_idxs.intersection(range(span_start, span_end)):
+        #     for link_span in links_to_merge:
+        #         if not (link_span.end <= span_start or link_span.start >= span_end):
+        #             # merge spans
+        #             new_start = min(span_start, link_span.start)
+        #             new_end = max(span_end, link_span.end)
+        #             span_start = new_start
+        #             span_end = new_end
+        #             deleted_links.append(link_span)
+        #     for link_span in deleted_links:
+        #         if link_span in links_to_merge:
+        #             links_to_merge.remove(link_span)
+        #             for i in range(link_span.start, link_span.end):
+        #                 if i in links_token_idxs:
+        #                     links_token_idxs.remove(i)
 
+        if ent_token_idxs.intersection(range(span_start, span_end)) or (span_start == ent.start and span_end == ent.end): # if the extended span intersects with existing spans, skip merging this entity
+            spans_to_merge.append(ent)
+            ent_token_idxs.update(range(ent.start, ent.end))
+            continue
+        
+        new_ent = Span(doc, span_start, span_end, label=ent.label_)
+        # doc.set_ents([new_ent], default="unmodified")
+        new_ents.append(new_ent)
+
+        spans_to_merge.append(new_ent)
+        ent_token_idxs.update(range(span_start, span_end))
+
+    doc.set_ents(filter_spans(new_ents), default="unmodified")
+    
     # Noun phrases
     not_naive_dets = {"all", "both", "every", "each", "either", "neither", "whichever", "whatever"}
     wh_dets = {"what", "which", "whose", "whichever", "whatever"}
@@ -336,7 +466,7 @@ def combine(doc: Doc, correfs: set[str]=set(), is_query: bool = False) -> list[S
             for right in token.rights:
                 if right.i != span_end:
                     break
-                if right.dep_ in {"advmod", "acomp", "prep", "conj", "cc", "det"}:
+                if right.dep_ in {"advmod", "acomp", "prep", "det"}: # WARN: considering conj/cc may meet bad cases
                     span_end = right.i + 1
                 else:
                     break
@@ -367,7 +497,7 @@ def combine(doc: Doc, correfs: set[str]=set(), is_query: bool = False) -> list[S
             for right in token.rights:
                 if right.i != span_end:
                     break
-                if right.dep_ in {"advmod", "prep", "conj", "cc", "det"}:
+                if right.dep_ in {"advmod", "prep", "det"}:  # WARN: considering conj/cc may meet bad cases
                     span_end = right.i + 1
                 else:
                     break
@@ -380,6 +510,38 @@ def combine(doc: Doc, correfs: set[str]=set(), is_query: bool = False) -> list[S
             # print("Adverb phrase span: ", span)
             spans_to_merge.append(span)
             ent_token_idxs.update(range(span.start, span.end))
+            
+    # Union the links_to_merge and spans_to_merge
+    # where if they have intersection, merge them into a bigger span
+    # if links_to_merge subset to spans_to_merge, do nothing
+    
+    
+    # for link_span in links_to_merge:
+    #     # print(f"Considering link span: {link_span}")
+    #     has_intersection = False
+    #     for span in spans_to_merge:
+    #         if not (link_span.end <= span.start or link_span.start >= span.end):
+                
+    #             # if the link_span subset of span, break
+    #             if link_span.start >= span.start and link_span.end <= span.end:
+    #                 has_intersection = True
+    #                 break
+                
+    #             # merge spans
+    #             new_start = min(link_span.start, span.start)
+    #             new_end = max(link_span.end, span.end)
+    #             new_span = doc[new_start:new_end]
+    #             spans_to_merge.remove(span)
+    #             spans_to_merge.append(new_span)
+    #             has_intersection = True
+    #             break
+    #     if not has_intersection:
+    #         spans_to_merge.append(link_span)
+            
+    corefs_clusters, corref_to_merge = CorrefCluster.fixup_clusters(corefs_clusters, spans_to_merge)
+    
+    spans_to_merge.extend(corref_to_merge)
 
     spans_to_merge = sorted(spans_to_merge, key=lambda s: s.start, reverse=True)
+    
     return spans_to_merge

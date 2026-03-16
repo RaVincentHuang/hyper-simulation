@@ -40,3 +40,9 @@ pixi run -e hypergraph test_build --data_path /home/vincent/.dataset/MultiHop/sa
 ```shell
 pixi run -e hypergraph display --steps 1
 ```
+
+### Local Model
+```shell
+export TRANSFORMERS_OFFLINE="1"
+export HF_DATASETS_OFFLINE="1"
+```

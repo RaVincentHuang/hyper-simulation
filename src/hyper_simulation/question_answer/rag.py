@@ -48,7 +48,7 @@ class RAGPipeline:
                  passages_path: str = "data/psgs_w100.tsv",
                  index_path: str = "index_hnsw/",
                  embedding_dir: str = "data/wikipedia_embeddings",
-                 llm_model_name: str = "qwen2.5:14b",
+                 llm_model_name: str = "qwen3.5:9b",
                  device: str = "cuda"):
         """
         初始化 RAG 流水线，加载所有必要的模型和索引。

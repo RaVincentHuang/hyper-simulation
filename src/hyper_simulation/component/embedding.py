@@ -48,53 +48,27 @@ def _get_sentence_transformer() -> SentenceTransformer:
     return _model_cache["Qwen/Qwen3-Embedding-0.6B"]
 
 
-def get_embedding_batch(texts: list[str], N: int=8, cache: None | dict[str, np.ndarray]=None) -> list[np.ndarray]:
+def get_embedding_batch(texts: list[str], batch_size: int=256, cache: None | dict[str, np.ndarray]=None) -> list[np.ndarray]:
     model = _get_sentence_transformer()
-
-    if not cache:
-        ans: list[np.ndarray]  = []
-        for i in range(0, len(texts), N):
-            batch_texts = texts[i:i+N]
-            if not batch_texts:
-                continue
-            batch_embeddings = model.encode(
-                batch_texts,
-                convert_to_numpy=True,
-                normalize_embeddings=True,
-                show_progress_bar=False,
-            )
-            
-            for emb in batch_embeddings:
-                ans.append(emb)
+    
+    if cache is None:
+        cache = {}
         
-        return ans
-    
-    ans_map = {}
-    missing_texts = []
-    
-    # 1. 查表：找出哪些需要计算
-    for text in texts:
-        if text in cache:
-            ans_map[text] = cache[text]
-        elif text not in ans_map:  # 避免当前输入列表中有重复项
-            missing_texts.append(text)
+    unique_texts = list(set(texts))
+    missing_texts = [t for t in unique_texts if t not in cache]
 
-    # 2. 批处理：仅计算缺失部分
-    for i in range(0, len(missing_texts), N):
-        batch_texts = missing_texts[i:i+N]
-        batch_embeddings = model.encode(
-            batch_texts,
+    if missing_texts:
+        new_embeddings = model.encode(
+            missing_texts,
+            batch_size=batch_size, # 让模型内部去处理分批
             convert_to_numpy=True,
             normalize_embeddings=True,
             show_progress_bar=False,
         )
-        # 更新中间 Map 和 外部 Cache
-        for text, emb in zip(batch_texts, batch_embeddings):
-            ans_map[text] = emb
-            cache[text] = emb  # 实时更新缓存供下次使用
+        
+        cache.update(zip(missing_texts, new_embeddings))
 
-    # 3. 重组：按照原始文本顺序返回结果
-    return [ans_map[text] for text in texts]
+    return [cache[t] for t in texts]
 
 
 def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
@@ -105,14 +79,50 @@ def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
 def get_similarity_batch(query: list[str], data: list[str], N: int=8) -> list[float]:
     query_embeddings = get_embedding_batch(query, N)
     data_embeddings = get_embedding_batch(data, N)
-    similarities = []
-    for q_emb in query_embeddings:
-        for d_emb in data_embeddings:
-            sim = cosine_similarity(q_emb, d_emb)
-            similarities.append(sim)
+    pairs = [(q_emb, d_emb) for q_emb in query_embeddings for d_emb in data_embeddings]
+    similarities = get_cosine_similarity_batch(pairs, is_normalized=True)
     return similarities
 
 def get_similarity(text1: str, text2: str) -> float:
     emb1 = get_embedding_batch([text1])[0]
     emb2 = get_embedding_batch([text2])[0]
     return cosine_similarity(emb1, emb2)
+
+def get_cosine_similarity_batch(pairs: list[tuple[np.ndarray, np.ndarray]], is_normalized: bool=False) -> list[float]:
+    """
+    计算 One-to-One 的批量余弦相似度
+    :param pairs: 输入格式为 [(vecA_1, vecB_1), (vecA_2, vecB_2), ...]
+    :return: 对应的相似度得分列表 [score_1, score_2, ...]
+    """
+    if not pairs:
+        return []
+
+    # 1. 解包：将 list of tuples 拆解为两个 list
+    A_list, B_list = zip(*pairs)
+    
+    # 2. 堆叠：将 1D 向量列表转换为连续内存的 2D 矩阵 (N, D)
+    A = np.stack(A_list)
+    B = np.stack(B_list)
+    
+    if is_normalized:
+        # 如果输入已经是归一化的向量，则直接计算点积
+        similarities = np.einsum('ij,ij->i', A, B)
+        return similarities.tolist()
+    
+    # 3. 批量计算范数并归一化
+    A_norms = np.linalg.norm(A, axis=1, keepdims=True)
+    B_norms = np.linalg.norm(B, axis=1, keepdims=True)
+    
+    # 避免除以零
+    A_norms[A_norms == 0] = 1e-10
+    B_norms[B_norms == 0] = 1e-10
+    
+    A_normalized = A / A_norms
+    B_normalized = B / B_norms
+    
+    # 4. 批量点积：使用 einsum 计算每行的内积，结果形状为 (N,)
+    similarities = np.einsum('ij,ij->i', A_normalized, B_normalized)
+    
+    # 将 NumPy 数组转回 Python 的 float 列表返回
+    return similarities.tolist()
+

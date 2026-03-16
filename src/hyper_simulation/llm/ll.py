@@ -1,7 +1,6 @@
-import langchain 
 from langchain_ollama import OllamaLLM
 
-llm = OllamaLLM(model="qwen2.5:72b", )
+llm = OllamaLLM(model="qwen3.5:9b", temperature=0.2)
 
 # x= llm.invoke("What is the capital of France?")
 # print(x)
@@ -17,6 +16,7 @@ def get_invoke_response(prompt):
         str: The response from the LLM.
     """
     response = llm.invoke(prompt)
+    print(response)
     return response
 
 if __name__ == "__main__":

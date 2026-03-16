@@ -14,6 +14,11 @@ class Vertex:
         self.poses = list(set(self.poses))
         self.ents = list(set(self.ents))
         
+        self.provenance_ids: set[int] = set()
+        
+        self.is_group: bool = False
+        self.group_nodes: list[Node] = []
+        
     def __hash__(self) -> int:
         return hash(self.id)
     
@@ -30,7 +35,7 @@ class Vertex:
         res = ""
         
         # 1. NER results
-        if self.ents and any(e != Entity.NOT_ENTITY for e in self.ents):
+        if self.ents and any((e != Entity.NOT_ENTITY) for e in self.ents):
             res += f"[{'|'.join(e.name for e in self.ents if e != Entity.NOT_ENTITY)}]"
         
         # 2. WordNet abstraction (if available)
@@ -145,6 +150,23 @@ class Vertex:
     
     def is_query(self) -> bool:
         return any(n.is_query for n in self.nodes)
+    
+    def set_provenance(self, provenance_ids: set[int]) -> None:
+        self.provenance_ids = provenance_ids
+        
+    def is_in_same_provenance(self, other: 'Vertex') -> bool:
+        if not self.provenance_ids or not other.provenance_ids:
+            return True  # 如果任一顶点没有来源信息，默认认为它们可能相关
+        return bool(self.provenance_ids & other.provenance_ids)
+    
+    def is_pronoun(self) -> bool:
+        return all(p == Pos.PRON for p in self.poses)
+    
+    def is_auxiliary(self) -> bool:
+        return all(p == Pos.AUX for p in self.poses)
+    
+    def is_virtual(self) -> bool:
+        return all(p == Pos.PRON or p == Pos.AUX for p in self.poses)
 
     def _wordnet_domain_match(self, other: 'Vertex') -> bool | None:
         """WordNet 抽象域/上位词匹配"""
@@ -216,6 +238,22 @@ class Vertex:
             return node.pronoun_antecedent.resolved_text or node.pronoun_antecedent.text
         return node.text
     
+    @staticmethod
+    def position_text(node: 'Node') -> str:
+        """Get resolved text for a node, handling coreference and pronoun antecedents."""
+        if node.resolved_text:
+            return node.resolved_text
+        # If node has a coref_primary, use its resolved_text
+        if node.coref_primary:
+            primary_resolved = node.coref_primary.resolved_text or node.coref_primary.text
+            return primary_resolved
+        if node.pos == Pos.PRON and node.pronoun_antecedent:
+            return node.pronoun_antecedent.resolved_text or node.pronoun_antecedent.text
+        
+        prefix = ""
+        
+        return node.text
+    
     def text(self) -> str:
         if not self.nodes:
             return ""
@@ -243,6 +281,10 @@ class Vertex:
                 vertex_map[node] = vertex
         return vertex_map
     
+    @staticmethod
+    def is_both_verb(vertex1: 'Vertex', vertex2: 'Vertex') -> bool:
+        return any(p in {Pos.VERB, Pos.AUX} for p in vertex1.poses) and any(p in {Pos.VERB, Pos.AUX} for p in vertex2.poses)
+    
     def dep(self) -> Dep:
         # return the dep of the first node
         if not self.nodes:
@@ -260,11 +302,19 @@ class Hyperedge:
         
         self.father: Hyperedge | None = None
         
+        self.hypergraph_id: int | None = None
+        
+        self._current_node_cache: dict[Vertex, Node] = {}
+        
     def current_node(self, vertex: Vertex) -> Node:
+        if vertex in self._current_node_cache:
+            return self._current_node_cache[vertex]
         for node in vertex.nodes:
             # print(f"node index is {node.index}, hyperedge range is {self.start}-{self.end}")
             if node.index >= self.start and node.index <= self.end:
+                self._current_node_cache[vertex] = node
                 return node
+        # TODO: 对于跨文档合并导致的 index 不匹配情况，我们可以添加文本的index作为补充 第 i 个文本
         # Fallback: 如果是因为跨文档合并导致 index 不匹配，返回第一个节点
         # 警告：这可能会导致生成的句子文本不完全准确，但保证程序不崩溃
         if vertex.nodes:
@@ -375,6 +425,9 @@ class Hyperedge:
         if node1.index < node2.index:
             return True
         return False
+    
+    def set_hypergraph_id(self, hypergraph_id: int | None) -> None:
+        self.hypergraph_id = hypergraph_id
 
     @staticmethod
     def form_relationship(relationship: Relationship, vertex_map: dict[Node, Vertex]) -> 'Hyperedge':

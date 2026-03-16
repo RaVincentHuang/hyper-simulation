@@ -8,7 +8,7 @@ from langchain_ollama import ChatOllama
 # ==========================================
 if __name__ == "__main__":
     # 示例数据
-    model = ChatOllama(model="qwen2.5:14b", temperature=0.8, top_p=0.95)
+    model = ChatOllama(model="qwen3.5:9b", temperature=0.8, top_p=0.95)
     file_dir = "/home/vincent/.dataset/HotpotQA/sample500/"
     data = load_data(file_dir, task="hotpotqa")
     sample_size = 5

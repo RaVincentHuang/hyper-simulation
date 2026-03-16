@@ -2,9 +2,9 @@ import time
 from typing import Dict, List, Set, Tuple
 from hyper_simulation.hypergraph.hypergraph import Hypergraph as LocalHypergraph, Vertex
 from simulation import Hypergraph as SimHypergraph, Hyperedge as SimHyperedge, Node, Delta, DMatch
-from hyper_simulation.component.nli import get_nli_labels_batch, get_nli_label
-from hyper_simulation.component.semantic_cluster import get_semantic_cluster_pairs, get_d_match
-from hyper_simulation.hypergraph.dependency import Pos, Entity, QueryType
+from hyper_simulation.component.semantic_cluster import calc_semantic_cluster_pairs, get_d_match
+from hyper_simulation.hypergraph.dependency import Pos
+from hyper_simulation.component.denial import get_matched_vertices, compute_allowed_pairs
 import warnings
 from tqdm import tqdm
 from hyper_simulation.utils.log import getLogger
@@ -40,136 +40,6 @@ def convert_local_to_sim(
     
     return sim_hg, node_text, sim_id_to_vertex, node_to_edges, vertex_to_sim_id
 
-def denial_comment(u: Vertex, v: Vertex) -> Tuple[bool, str]:
-    """
-    返回 (是否非冲突, 原因说明)
-    """
-    ut = u.text().strip()
-    vt = v.text().strip()
-    
-    # 1. 空文本检查
-    if not ut or not vt:
-        return False, "Empty text"
-    
-    # 2. 基于 QueryType 的疑问词处理
-    if getattr(u, 'is_query', False):
-        query_types = {n.query_type for n in u.nodes if hasattr(n, 'query_type') and n.query_type}
-        if query_types:
-            matched_ent = []
-            for qtype in query_types:
-                if qtype == QueryType.PERSON and v.ent_range(Entity.PERSON):
-                    matched_ent.append("PERSON")
-                elif qtype == QueryType.TIME and (v.ent_range(Entity.DATE) or v.ent_range(Entity.TIME)):
-                    matched_ent.append("DATE/TIME")
-                elif qtype == QueryType.LOCATION and (v.ent_range(Entity.GPE) or v.ent_range(Entity.LOC)):
-                    matched_ent.append("GPE/LOC")
-                elif qtype == QueryType.NUMBER and (v.ent_range(Entity.CARDINAL) or v.ent_range(Entity.QUANTITY) or v.pos_range(Pos.NUM)):
-                    matched_ent.append("CARDINAL/QUANTITY/NUM")
-                elif qtype == QueryType.BELONGS and (v.ent_range(Entity.PERSON) or v.ent_range(Entity.ORG) or v.ent_range(Entity.GPE)):
-                    matched_ent.append("PERSON/ORG/GPE")
-                elif qtype in {QueryType.WHAT, QueryType.WHICH} and (any(e != Entity.NOT_ENTITY for e in v.ents) or v.pos_range(Pos.NOUN) or v.pos_range(Pos.PROPN)):
-                    matched_ent.append("NON_EMPTY_ENTITY_OR_NOUN")
-                elif qtype == QueryType.ATTRIBUTE and (v.pos_range(Pos.ADJ) or v.pos_range(Pos.ADV)):
-                    matched_ent.append("ADJ/ADV")
-                elif qtype == QueryType.REASON and not v.pos_equal(Pos.PUNCT):
-                    matched_ent.append("NON_PUNCT")
-            
-            if matched_ent:
-                qtype_names = [str(qt).split('.')[-1] for qt in query_types]
-                return True, f"QueryType={qtype_names} → matched Data entity types: {matched_ent}"
-            else:
-                data_ents = [str(e).split('.')[-1] for e in v.ents if e != Entity.NOT_ENTITY]
-                data_poses = [str(p).split('.')[-1] for p in v.poses]
-                qtype_names = [str(qt).split('.')[-1] for qt in query_types]
-                return False, f"QueryType={qtype_names} → Data has ents={data_ents}, poses={data_poses}"
-
-
-    # 3. 同类型实体豁免
-    u_has_ent = any(e != Entity.NOT_ENTITY for e in u.ents)
-    v_has_ent = any(e != Entity.NOT_ENTITY for e in v.ents)
-    if u_has_ent and v_has_ent:
-        entity_groups = [
-            ({Entity.PERSON, Entity.NORP}, "PERSON_GROUP"),
-            ({Entity.GPE, Entity.LOC, Entity.FAC, Entity.ORG, Entity.NORP}, "LOCATION_ORG_GROUP"),
-            ({Entity.DATE, Entity.TIME}, "TIME_GROUP"),
-            ({Entity.PRODUCT, Entity.WORK_OF_ART}, "PRODUCT_GROUP"),
-            ({Entity.MONEY, Entity.PERCENT, Entity.QUANTITY, Entity.CARDINAL}, "NUMBER_GROUP"),
-            ({Entity.EVENT, Entity.LAW, Entity.LANGUAGE}, "EVENT_GROUP"),
-        ]
-        for group_entities, group_name in entity_groups:
-            u_in_group = any(u.ent_range(e) for e in group_entities)
-            v_in_group = any(v.ent_range(e) for e in group_entities)
-            if u_in_group and v_in_group:
-                return True, f"Entity-compatible: both in {group_name}"
-
-        u_ents = [str(e).split('.')[-1] for e in u.ents if e != Entity.NOT_ENTITY]
-        v_ents = [str(e).split('.')[-1] for e in v.ents if e != Entity.NOT_ENTITY]
-        return False, f"Entity-mismatch: Query ents={u_ents} vs Data ents={v_ents}"
-
-    # 4. NLI 矛盾检测
-    label = get_nli_label(ut, vt)
-    if label != "contradiction":
-        return True, f"NLI={label} (non-contradiction)"
-    else:
-        return False, f"NLI={label} (contradiction)"
-
-
-def compute_allowed_pairs(
-    query_vertices: Dict[int, Vertex],
-    data_vertices: Dict[int, Vertex]
-) -> Set[Tuple[int, int]]:
-    """
-    批量计算 allowed pairs，并输出详细日志（含未匹配的 Q/D 文本）
-    """
-    logger = getLogger("denial_comment")
-    
-    if not query_vertices or not data_vertices:
-        if logger:
-            logger.info("Empty query or data vertices. Returning empty allowed set.")
-        return set()
-
-    allowed: Set[Tuple[int, int]] = set()
-    allowed_logs: List[str] = []
-    contradicted_logs: List[str] = []
-
-    for q_id, q_vertex in query_vertices.items():
-        for d_id, d_vertex in data_vertices.items():
-            is_allowed, reason = denial_comment(q_vertex, d_vertex)
-            qt = q_vertex.text()
-            dt = d_vertex.text()
-            
-            log_entry = f"Q{q_id}: '{qt}' vs D{d_id}: '{dt}' (reason: {reason})"
-            if is_allowed:
-                allowed.add((q_id, d_id))
-                allowed_logs.append(log_entry)
-            else:
-                contradicted_logs.append(log_entry)
-
-    # === 全量日志输出（无截断）===
-    if logger is not None:
-        total = len(query_vertices) * len(data_vertices)
-        logger.info(f"Total Q-D pairs processed: {total}")
-        logger.info(f"Allowed pairs count: {len(allowed_logs)}")
-        logger.info(f"Contradicted pairs count: {len(contradicted_logs)}")
-
-        if allowed_logs:
-            logger.info("=== BEGIN ALLOWED PAIRS ===")
-            for idx, log in enumerate(allowed_logs, start=1):
-                logger.info(f"[ALLOWED {idx}] {log}")
-            logger.info("=== END ALLOWED PAIRS ===")
-        else:
-            logger.info("No allowed pairs.")
-
-        if contradicted_logs:
-            logger.info("=== BEGIN CONTRADICTED PAIRS ===")
-            for idx, log in enumerate(contradicted_logs, start=1):
-                logger.info(f"[CONTRADICTED {idx}] {log}")
-            logger.info("=== END CONTRADICTED PAIRS ===")
-        else:
-            logger.info("No contradicted pairs.")
-
-    return allowed
-
 def build_delta_and_dmatch(
     query: SimHypergraph,
     data: SimHypergraph,
@@ -182,7 +52,10 @@ def build_delta_and_dmatch(
     data_local_hg: LocalHypergraph,
     vertex_to_sim_id_q: Dict[Vertex, int],
     vertex_to_sim_id_d: Dict[Vertex, int],
-    dmatch_threshold: float = 0.3
+    matched_vertices: dict[Vertex, set[Tuple[Vertex, float]]],
+    cluster_sim_threshold: float = 0.75,
+    dmatch_threshold: float = 0.3,
+    is_multihop: bool = False,
 ) -> Tuple[Delta, DMatch]:
     """
     构建Delta和D-Match，确保100%覆盖allowed_pairs
@@ -202,11 +75,12 @@ def build_delta_and_dmatch(
     # Step 1: 多节点语义簇（结构化匹配，带异常隔离）
     cluster_count = 0
     # === 阶段1：记录原始结果（来自 get_semantic_cluster_pairs）===
-    raw_pairs = get_semantic_cluster_pairs(query_local_hg, data_local_hg, allowed_pairs, vertex_to_sim_id_q, vertex_to_sim_id_d, max_hops_query=2, max_hops_data=4, cluster_sim_threshold=0.4, logger=sc_logger)
+    # raw_pairs = get_semantic_cluster_pairs(query_local_hg, data_local_hg, allowed_pairs, vertex_to_sim_id_q, vertex_to_sim_id_d, max_hops_query=2, max_hops_data=4, cluster_sim_threshold=0.4, logger=sc_logger)
+    raw_pairs = calc_semantic_cluster_pairs(query_local_hg, data_local_hg, matched_vertices, cluster_sim_threshold, is_multihop, logger=sc_logger)
     sc_logger.info(f"语义簇生成完成: 共 {len(raw_pairs)} 个原始簇对")
     # === 阶段2：处理并记录过滤后结果 ===
     cluster_count = 0
-    for sc_q, sc_d, sim_score, q_vertex, d_vertex in raw_pairs:
+    for sc_q, sc_d, sim_score in raw_pairs:
         # --- 提取结构信息 ---
         q_vertices = sc_q.get_vertices()
         d_vertices = sc_d.get_vertices()
@@ -266,7 +140,7 @@ def build_delta_and_dmatch(
         try:
             matches = {
                 (vertex_to_sim_id_q[vq], vertex_to_sim_id_d[vd])
-                for vq, vd, _ in get_d_match(sc_q, sc_d, dmatch_threshold, force_include=(q_vertex, d_vertex))
+                for vq, vd, _ in get_d_match(sc_q, sc_d, dmatch_threshold)
                 if vq in vertex_to_sim_id_q and vd in vertex_to_sim_id_d
             }
         except (AssertionError, AttributeError, IndexError) as e:
@@ -325,7 +199,9 @@ def compute_hyper_simulation(
     # 计算宽松的语义允许性
     dc_logger = getLogger("denial_comment")
     allowed = compute_allowed_pairs(q_vertices, d_vertices)
-    
+    q_vertices_list = list(q_vertices.values())
+    d_vertices_list = list(d_vertices.values())
+    match_vertices = get_matched_vertices(q_vertices_list, d_vertices_list)
     # 定义type_same_fn（基于Sim ID空间）
     def type_same_fn(x_id: int, y_id: int) -> bool:
         return (x_id, y_id) in allowed
@@ -346,6 +222,7 @@ def compute_hyper_simulation(
         data_local_hg=data_hg,
         vertex_to_sim_id_q=q_vid_map,
         vertex_to_sim_id_d=d_vid_map,
+        matched_vertices=match_vertices,
         dmatch_threshold=0.3
     )
     
@@ -379,3 +256,9 @@ def compute_hyper_simulation(
     sim_logger.info(f"\thyper simulation main cost {end_time - start_time}s")
 
     return simulation, q_vertices, d_vertices
+
+# Apple / Banana
+# 中间可能会存在一些特殊符号
+
+# 1. 处理不了非标准符号
+# 2. 可能会错误地把一些token与token跟着的标点符号合并到一起，影响：程序崩溃或者可能非常影响依存分析的结果

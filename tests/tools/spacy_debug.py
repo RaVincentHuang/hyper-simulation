@@ -7,11 +7,13 @@ from spacy import displacy
 from fastcoref import spacy_component
 
 from spacy.tokens import Doc
+from spacy.symbols import ORTH
 
-from hyper_simulation.hypergraph.combine import combine, calc_correfs_str
+from hyper_simulation.hypergraph.combine import combine, calc_correfs_str, combine_links
 from hyper_simulation.hypergraph.dependency import Node, LocalDoc, Dependency
 from hyper_simulation.hypergraph.hypergraph import Hypergraph as LocalHypergraph, Vertex, Node, Hyperedge
-
+from hyper_simulation.utils.clean import clean_text_for_spacy
+from hyper_simulation.hypergraph.corref import CorrefCluster, mark_corref
 
 def get_nlp() -> spacy.Language:
     nlp = spacy.load("en_core_web_trf")
@@ -24,6 +26,11 @@ def get_nlp() -> spacy.Language:
                 "device": "cpu",
             },
         )
+        
+    nlp.tokenizer.add_special_case("I.", [{ORTH: "I"}, {ORTH: "."}])
+    ROMAN_NUMERALS = ["II", "III", "IV", "VI", "VII", "VIII", "IX", "XI", "XII"]
+    for numeral in ROMAN_NUMERALS:
+        nlp.tokenizer.add_special_case(f"{numeral}.", [{ORTH: numeral}, {ORTH: "."}])
     return nlp
 
 
@@ -86,7 +93,7 @@ def debug_text_to_hypergraph(
     output_base = Path(output_dir)
     output_base.mkdir(parents=True, exist_ok=True)
     steps_set = set(steps) if steps is not None else {1, 2, 3, 4}
-
+    text = clean_text_for_spacy(text)
     nlp = get_nlp()
     cfg = {"fastcoref": {"resolve_text": True}} if "fastcoref" in nlp.pipe_names else {}
     doc = nlp(text, component_cfg=cfg)
@@ -102,11 +109,21 @@ def debug_text_to_hypergraph(
 
     # combine + retokenize
     correfs = calc_correfs_str(doc) if hasattr(doc._, "coref_clusters") else set()
-    spans_to_merge = combine(doc, correfs, is_query=is_query)
+    links_to_merge = combine_links(doc)
+    with doc.retokenize() as retokenizer:
+        for link in links_to_merge:
+            # print(f"Merging link: '{link.text}' (start={link.start}, end={link.end}, label={link.label_})")
+            retokenizer.merge(link)
+    print(f"Correfs : {correfs}")
+    corref_clusters = CorrefCluster.from_doc(doc)
+    spans_to_merge = combine(doc, correfs, is_query=is_query, corefs_clusters=corref_clusters)
     with doc.retokenize() as retokenizer:
         for span in spans_to_merge:
+            # print(f"Merging span: '{span.text}' (start={span.start}, end={span.end}, label={span.label_})")
             retokenizer.merge(span)
 
+    corref_clusters = CorrefCluster.update_by_doc(corref_clusters, doc)
+    
     # 2) combine 后依存分析
     if 2 in steps_set:
         print_dep_tokens(doc, "Step 2 - Combined (after retokenize)")
@@ -115,9 +132,19 @@ def debug_text_to_hypergraph(
         )
 
     # 3) 指代消解 + vertices
-    print(f"Coreference clusters: {getattr(doc._, 'coref_clusters', None)}")
+    print(f"Coreference clusters")
+    # print the coref_clusters by texts
+    for idx, cluster in enumerate(corref_clusters):
+        
+        if cluster.is_dropped():
+            continue
+        
+        mention_text = ", ".join([mention.text for mention in cluster.mentions])
+        primary_text = cluster.primary_mention.text if cluster.primary_mention else "None"
+        print(f"Cluster [{idx}]: [{mention_text}], primary={primary_text}")
     print(f"Resolved Text: {getattr(doc._, 'resolved_text', None)}")
     nodes, roots = Node.from_doc(doc)
+    nodes = mark_corref(nodes, corref_clusters)
     local_doc = LocalDoc(doc)
     dep = Dependency(nodes, roots, local_doc, is_query=is_query)
     vertices, rels, id_map = (
@@ -130,8 +157,8 @@ def debug_text_to_hypergraph(
     )
     if 3 in steps_set:
         print("\n[Step 3 - Vertices] (after coreference & vertex construction)")
-        for k, v in id_map.items():
-            print(f"    Node '{k.text}' in [{v}]")
+        # for k, v in id_map.items():
+        #     print(f"    Node '{k.text}' in [{v}]")
         vertex_objs = Vertex.from_nodes(vertices, id_map)
         for vertex in sorted(vertex_objs, key=lambda v: v.id):
             print(format_vertex(vertex))
@@ -152,7 +179,8 @@ def debug_text_to_hypergraph(
 
 
 if __name__ == "__main__":
-    text = """Because generating subsequent steps fundamentally relies on previous context, modeling these dependencies is essential for capturing the true logic of LLM reasoning."""
+    text = """The first expedition to reach the geographic South Pole was led by the Norwegian explorer Roald Amundsen. He and four others arrived at the pole on 14 December 1911, five weeks ahead of a British party led by Robert Falcon Scott as part of the Terra Nova Expedition. Amundsen and his team returned safely to their base, and later learned that Scott and his four companions had died on their return journey.
+"""
     
     parser = ArgumentParser(description="Debug spaCy dependency pipeline steps.")
     parser.add_argument("--output-dir", type=str, default="logs/dep_debug")

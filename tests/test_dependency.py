@@ -3,7 +3,7 @@ from fastcoref import spacy_component
 from hyper_simulation.hypergraph.combine import combine, calc_correfs_str
 from hyper_simulation.hypergraph.dependency import Dependency, Node, LocalDoc
 from hyper_simulation.hypergraph.hypergraph import Hypergraph
-
+from hyper_simulation.hypergraph.corref import CorrefCluster, mark_corref
 
 nlp = spacy.load('en_core_web_trf')
 nlp.add_pipe('fastcoref', 
@@ -29,7 +29,9 @@ with doc.retokenize() as retokenizer:
 for token in doc:
     print(f"Token: '{token.text}', Lemma: '{token.lemma_}', Dep: {token.dep_} ['{token.head.text}'], Ent: {token.ent_type_}, POS: {token.pos_}, TAG: {token.tag_}")
 
+corref_clusters = CorrefCluster.from_doc(doc)
 nodes, roots = Node.from_doc(doc)
+nodes = mark_corref(nodes, corref_clusters)
 # print(f"Dependency Tree Nodes:{nodes}")
 # print(f"Dependency Tree Roots:{roots}")
 # Print coreference information for nodes
