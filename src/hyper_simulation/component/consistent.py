@@ -177,6 +177,7 @@ def query_fixup(query: QueryInstance, dataset_name: str = "hotpotqa", base_dir: 
     
     if dataset_name in multi_hop_tasks:
         fusion = MultiHopFusion()
+        
         valid_data_hgs = [hg for hg in data_hgs if hg is not None]
         valid_indices = [i for i, hg in enumerate(data_hgs) if hg is not None]
         valid_hgs = [data_hgs[i] for i in valid_indices]
@@ -189,30 +190,33 @@ def query_fixup(query: QueryInstance, dataset_name: str = "hotpotqa", base_dir: 
             query.fixed_data = query.data
             return query
             
-        # merge
+        # merge + reverse trace
         consistent_logger.debug("[Multi-hop] Running MultiHopFusion process...")
-        is_consistent, context = fusion.process(query_hg, valid_hgs, valid_texts)
         
-        # 一致性结果
-        consistent_logger.info(f"[Multi-hop] Consistency Result: {'CONSISTENT' if is_consistent else 'INCONSISTENT/PARTIAL'}")
-        
-        # 解析使用的证据来源
+        context = fusion.process(query_hg, valid_hgs, valid_texts)
+
         active_sources = set()
         for line in context.split("\n"):
-            if line.startswith("[") and "] USED:" in line:
+            # 新格式: "[0] 🔹 High Confidence (2 matches, avg_conf=0.90)"
+            if line.startswith("[") and "]" in line and ("SUPPORTS" in line or "Confidence" in line):
                 try:
-                    source_id = int(line.split("]")[0].replace("[", ""))
-                    active_sources.add(source_id)
-                except:
+                    # 提取 [0] 中的数字
+                    source_id = int(line.split("]")[0].replace("[", "").strip())
+                    # 只记录有实际匹配的 evidence
+                    if "covers 0 query components" not in line:
+                        active_sources.add(source_id)
+                except (ValueError, IndexError):
                     pass
         
-        consistent_logger.info(f"[Multi-hop] Active evidence sources: {sorted(active_sources)}")
-        consistent_logger.info(f"[Multi-hop] Unused evidence sources: {sorted(set(range(len(valid_texts))) - active_sources)}")
+        consistent_logger.info(f"[Multi-hop] Active evidence sources (with matches): {sorted(active_sources)}")
+        unused = set(range(len(valid_texts))) - active_sources
+        if unused:
+            consistent_logger.debug(f"[Multi-hop] Unused evidence sources: {sorted(unused)}")
         
-        # ✅ 日志：fixed_data 生成
+        # ✅ 修改点 4: fixed_data 生成（保持不变）
         query.fixed_data = [context]
         consistent_logger.info(f"[Multi-hop] fixed_data generated: 1 item, {len(context)} chars")
-        consistent_logger.debug(f"[Multi-hop] fixed_data preview:\n{context}")
+        consistent_logger.debug(f"[Multi-hop] fixed_data preview:\n{context[:500]}...")
         
         return query
 

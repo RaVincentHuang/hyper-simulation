@@ -652,7 +652,7 @@ def calc_semantic_cluster_pairs(
     hypergraph_q: Hypergraph, 
     hypergraph_d: Hypergraph, 
     matched_vertices: dict[Vertex, set[Tuple[Vertex, float]]], 
-    cluster_sim_threshold: float = 0.75, 
+    cluster_sim_threshold: float = 0.5, 
     is_multihop: bool = False, 
     logger: Optional[logging.Logger] = None
 ) -> list[tuple[SemanticCluster, SemanticCluster, float, Vertex, Vertex]]:

@@ -5,27 +5,17 @@ MUSIQUE_QA_BASE = """### Context:
 {question}
 
 ### Instructions:
-This is a multi-hop reasoning question. You need to combine information from multiple paragraphs.
+This is a multi-hop reasoning question. 
 
-Please follow these steps:
+**Please answer directly following these rules:**
+1. Think through the question internally, but **do not output your reasoning process**
+2. Combine information from multiple paragraphs silently
+3. Output **only** the final answer in this exact format:
+   ### Final Answer: <your answer>
+4. If the answer cannot be determined from the context, output:
+   ### Final Answer: unanswerable
 
-**Step 1: Identify relevant paragraphs**
-- List which paragraphs contain information related to the question
-- Quote the key sentences
-
-**Step 2: Break down the question**
-- Identify sub-questions that need to be answered first
-- Solve each sub-question using the context
-
-**Step 3: Combine the information**
-- Connect the answers from sub-questions to derive the final answer
-- Check for consistency across paragraphs
-
-**Step 4: Output the final answer**
-- After your reasoning, output the final answer in this exact format:
-  ### Final Answer: <your answer>
-- If the answer cannot be determined from the context, output:
-  ### Final Answer: unanswerable
+**Important:** Do not include any explanation, step-by-step analysis, or intermediate thoughts. Just output the final answer line.
 
 ### Response:
 """

@@ -695,35 +695,58 @@ def evaluate_answer(prediction: str, ground_truth: list | str) -> Dict[str, floa
 
 
 def postprocess_answer(answer: str) -> str:
+    """
+    从 LLM 输出中提取最终答案（融合版）
+    
+    优先级:
+    1. 精确匹配 "### Final Answer: <answer>"
+    2. 最后一行短答案（排除推理关键词）
+    3. 兜底：返回清洗后的前 200 字符
+    """
+    import re
+    
+    # ========== 1. 空答案保护 ==========
     if not answer:
         return "unanswerable"
     
-    answer = answer.replace("</s>", "").strip()
+    # ========== 2. 基础清理 ==========
+    answer = answer.replace("</s>", "").replace("</think>", "").strip()
     
-    # 优先提取 ### Final Answer: 后的内容（最高优先级）
+    # ========== 3. 优先匹配 ### Final Answer: ==========
     final_answer_pattern = r"###\s*Final\s*Answer:\s*(.+?)(?:\n|$)"
     match = re.search(final_answer_pattern, answer, re.IGNORECASE)
     if match:
-        return match.group(1).strip(" .,;:!?\"'")
+        extracted = match.group(1).strip()
+        # 清理两端标点
+        return extracted.strip(" .,;:!?\"'")
     
-    # 次选：提取最后一个单独成行的短答案
+    # ========== 4. 次选：最后一行短答案 ==========
     lines = answer.strip().split('\n')
+    exclude_keywords = ['step', 'reason', 'explain', 'note', 'context', 
+                       'paragraph', 'think', 'analysis', 'conclusion']
+    
     for line in reversed(lines):
         line = line.strip()
-        if line and len(line) < 100 and not any(k in line.lower() for k in 
-            ['step', 'reason', 'explain', 'note', 'context', 'paragraph']):
+        if (line and 
+            len(line) < 100 and 
+            not any(k in line.lower() for k in exclude_keywords) and
+            not line.startswith('#')):  # 排除 markdown 标题
             return line.strip(" .,;:!?\"'")
     
-    # 兜底：返回清洗后的全文
-    return answer.strip(" .,;:!?\"'")[:200]
-
+    # ========== 5. 兜底 + 警告日志 ==========
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.warning(f"⚠️ Could not parse answer, using fallback. Output preview: {answer[:100]}...")
+    
+    cleaned = answer.strip(" .,;:!?\"'")[:200]
+    return cleaned if cleaned else "unanswerable"
 
 def run_rag_evaluation(
     data_path: str,
     model_name: str = "qwen3.5:9b",
     output_path: str = "",
     batch_size: int = 5,
-    temperature: float = 0.7,
+    temperature: float = 0.2,
     task: str = "hotpotqa",
     method: str = "vanilla",
     build: bool = True,

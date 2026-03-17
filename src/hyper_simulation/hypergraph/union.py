@@ -65,6 +65,288 @@ class MultiHopFusion:
             return True
         return False
 
+    def _is_critical_node(self, vertex: Vertex) -> bool:
+        """
+        判断是否为需要追踪的关键 query 节点
+        标准: 包含实体 (非 NOT_ENTITY) 或 是 NOUN/PROPN
+        """
+        return (
+            any(e != Entity.NOT_ENTITY for e in vertex.ents) or
+            any(n.pos in {Pos.NOUN, Pos.PROPN} for n in vertex.nodes)
+        )
+
+    def _estimate_match_confidence(self, q_v: Vertex, d_v: Vertex) -> float:
+        """
+        启发式估计匹配置信度 (0.0 ~ 1.0)
+        
+        评分规则:
+        - 文本精确匹配: +0.5
+        - 实体类型一致: +0.3
+        - POS 兼容: +0.2
+        """
+        score = 0.0
+        
+        # 1. 文本精确匹配
+        if q_v.text().strip() == d_v.text().strip():
+            score += 0.5
+        
+        # 2. 实体类型一致
+        if q_v.ent_same(d_v):
+            score += 0.3
+        
+        # 3. POS 兼容
+        if q_v.pos_same(d_v):
+            score += 0.2
+        
+        return min(1.0, score)
+
+    def _extract_supporting_span(self, merged_vertex: Vertex, evidence_hg: Hypergraph, evidence_text: str) -> str:
+        """
+        从原始 evidence 中提取与 merged_vertex 对应的具体文本跨度
+        
+        策略优先级:
+        1. 如果 merged_vertex 的 node 直接来自该 evidence，返回 covered_sentence
+        2. 在 evidence_text 中搜索 merged_vertex.text() 的子串，返回上下文
+        3. 兜底: 返回 evidence_text 的前 100 字符
+        """
+        # 策略 1: 通过 node 的文档/句子引用定位 (如果数据结构支持)
+        for node in merged_vertex.nodes:
+            # 假设 Node 有 doc_id 或 sentence_id 能关联到原始 evidence
+            if hasattr(node, 'doc_id') and hasattr(evidence_hg.doc, 'id') and node.doc_id == evidence_hg.doc.id:
+                return node.covered_sentence or node.text or ""
+        
+        # 策略 2: 文本子串匹配 + 上下文提取
+        merged_text = merged_vertex.text().strip()
+        if merged_text and merged_text in evidence_text:
+            idx = evidence_text.find(merged_text)
+            # 提取 ±50 字符的上下文
+            start = max(0, idx - 50)
+            end = min(len(evidence_text), idx + len(merged_text) + 50)
+            span = evidence_text[start:end].strip()
+            # 限制长度，避免过长
+            return span if len(span) <= 200 else span[:200] + "..."
+        
+        # 策略 3: 兜底返回摘要
+        return evidence_text[:100] + "..." if len(evidence_text) > 100 else evidence_text
+
+    def _reverse_trace_consistency(
+        self,
+        query_hg: Hypergraph,
+        merged_hg: Hypergraph,
+        evidence_hgs: List[Hypergraph],
+        evidence_texts: List[str],
+        q_map: Dict[int, Vertex],
+        d_map: Dict[int, Vertex],
+        mapping: Dict[int, Set[int]],
+        provenance: Dict[int, Set[int]]
+    ) -> Dict[str, List[Dict]]:
+        """
+        核心反向溯源: query → merged vertex → original evidence
+        
+        返回格式:
+        {
+            "query_text": [
+                {
+                    'matched': bool,
+                    'evidence_idx': int | None,
+                    'supporting_text': str | None,
+                    'confidence': float,
+                    'merged_vertex_text': str
+                },
+                ...
+            ]
+        }
+        """
+        # 辅助映射: merged_vertex.id → {evidence_indices}
+        merged_to_sources = {v_id: srcs for v_id, srcs in provenance.items()}
+        
+        # 结果容器
+        query_to_evidence_details: Dict[str, List[Dict]] = defaultdict(list)
+        
+        # 反向映射: query_vertex.id → sim_id
+        q_vertex_to_sim_id = {v.id: k for k, v in q_map.items()}
+        
+        for q_v in query_hg.vertices:
+            # 只追踪关键节点
+            if not self._is_critical_node(q_v):
+                continue
+            
+            q_text = q_v.text()
+            sim_id = q_vertex_to_sim_id.get(q_v.id)
+            d_sim_ids = mapping.get(sim_id, set()) if sim_id is not None else set()
+            
+            # 情况 1: 未匹配到任何 merged vertex
+            if not d_sim_ids:
+                query_to_evidence_details[q_text].append({
+                    'matched': False,
+                    'evidence_idx': None,
+                    'supporting_text': None,
+                    'confidence': 0.0,
+                    'merged_vertex_text': None
+                })
+                continue
+            
+            # 情况 2: 已匹配，追溯每个 matched merged vertex 的来源
+            for d_sim_id in d_sim_ids:
+                d_v_merged = d_map.get(d_sim_id)
+                if not d_v_merged:
+                    continue
+                
+                # 🔑 关键: 通过 provenance 找到原始 evidence indices
+                source_indices = merged_to_sources.get(d_v_merged.id, set())
+                
+                for src_idx in source_indices:
+                    # 边界检查
+                    if not (0 <= src_idx < len(evidence_hgs)) or evidence_hgs[src_idx] is None:
+                        continue
+                    
+                    # 提取支撑文本
+                    supporting_text = self._extract_supporting_span(
+                        d_v_merged, 
+                        evidence_hgs[src_idx], 
+                        evidence_texts[src_idx]
+                    )
+                    
+                    # 记录详情
+                    query_to_evidence_details[q_text].append({
+                        'matched': True,
+                        'evidence_idx': src_idx,
+                        'supporting_text': supporting_text,
+                        'confidence': self._estimate_match_confidence(q_v, d_v_merged),
+                        'merged_vertex_text': d_v_merged.text()
+                    })
+        
+        return dict(query_to_evidence_details)
+
+    def _build_structured_context(
+        self,
+        query_hg: Hypergraph,
+        query_to_evidence_details: Dict[str, List[Dict]],
+        evidence_texts: List[str],
+        merged_hg: Hypergraph,
+        q_map: Dict[int, Vertex],
+        d_map: Dict[int, Vertex],
+        mapping: Dict[int, Set[int]],
+        provenance: Dict[int, Set[int]]
+    ) -> str:
+        """
+        生成结构化上下文，聚焦"证据支撑详情"，移除整体一致性判断
+        
+        输出格式:
+        ## Multi-hop Evidence Support Analysis
+        ### 🔍 Evidence-Centric View:
+        [0] 🔹 High Confidence (covers 2 query components)
+             Preview: "Alice founded TechCorp..."
+             Supports:
+               • Q: 'who founded TechCorp' → "Alice founded TechCorp in 2010"
+        
+        ### ⚠️  Low-Confidence / Conflicting Info:
+          • 'headquarters': [0] says "San Francisco", [2] says "New York"
+        """
+        lines = []
+        
+        # === Header: 覆盖统计（仅信息展示） ===
+        total_q_nodes = len(query_to_evidence_details)
+        covered_count = sum(
+            1 for details in query_to_evidence_details.values()
+            if any(d['matched'] for d in details)
+        )
+        
+        lines.append("## Multi-hop Evidence Support Analysis")
+        lines.append(f"**Coverage**: {covered_count}/{total_q_nodes} query components have evidence support")
+        lines.append("")
+        
+        # === View 1: By Evidence (按置信度分组) ===
+        lines.append("### 🔍 Evidence-Centric View:")
+        
+        # 按 evidence index 分组
+        evidence_to_queries: Dict[int, List[Dict]] = defaultdict(list)
+        for q_text, details in query_to_evidence_details.items():
+            for d in details:
+                if d['matched'] and d['evidence_idx'] is not None:
+                    evidence_to_queries[d['evidence_idx']].append({
+                        'query': q_text,
+                        'supporting_text': d['supporting_text'],
+                        'confidence': d['confidence']
+                    })
+        
+        # 输出每个 evidence（按"平均置信度"排序，高置信度在前）
+        evidence_stats = []
+        for idx in range(len(evidence_texts)):
+            queries = evidence_to_queries.get(idx, [])
+            avg_conf = sum(q['confidence'] for q in queries) / len(queries) if queries else 0.0
+            evidence_stats.append((idx, avg_conf, len(queries), evidence_texts[idx]))
+        
+        # 排序: 高置信度 + 多匹配 优先
+        evidence_stats.sort(key=lambda x: (-x[1], -x[2]))
+        
+        for idx, avg_conf, match_count, text in evidence_stats:
+            # 置信度图标
+            if avg_conf >= 0.8:
+                conf_label, conf_icon = "High Confidence", "🔹"
+            elif avg_conf >= 0.5:
+                conf_label, conf_icon = "Medium Confidence", "🔸"
+            else:
+                conf_label, conf_icon = "Low Confidence", "▫️"
+            
+            preview = text[:80] + "..." if len(text) > 80 else text
+            
+            lines.append(f"\n[{idx}] {conf_icon} {conf_label} ({match_count} matches, avg_conf={avg_conf:.2f})")
+            lines.append(f"     Preview: {preview}")
+            
+            if evidence_to_queries.get(idx):
+                lines.append("     Supports:")
+                for item in sorted(evidence_to_queries[idx], key=lambda x: -x['confidence']):
+                    lines.append(f"       • Q: '{item['query']}'")
+                    if item['supporting_text']:
+                        span_lines = item['supporting_text'].split('\n')
+                        for sl in span_lines[:2]:
+                            lines.append(f"          → {sl.strip()}")
+        
+        # === View 2: 冲突/低置信度信息（供 LLM 警惕） ===
+        conflicting_info = []
+        for q_text, details in query_to_evidence_details.items():
+            matched = [d for d in details if d['matched'] and d['evidence_idx'] is not None]
+            if len(matched) >= 2:
+                # 检查是否有不同答案（简单：文本不同 + 置信度都>0.5）
+                answers = [(d['merged_vertex_text'], d['evidence_idx']) for d in matched if d['confidence'] >= 0.5]
+                unique_answers = set(a[0] for a in answers)
+                if len(unique_answers) >= 2:
+                    conflicting_info.append({
+                        'query': q_text,
+                        'candidates': list(unique_answers),
+                        'sources': [a[1] for a in answers]
+                    })
+        
+        if conflicting_info:
+            lines.append("\n### ⚠️  Potential Conflicts / Low-Confidence Info:")
+            for item in conflicting_info:
+                candidates_str = ", ".join(f"'{c}'" for c in item['candidates'][:3])
+                if len(item['candidates']) > 3:
+                    candidates_str += f" (+{len(item['candidates'])-3} more)"
+                lines.append(f"  • '{item['query']}': conflicting answers [{candidates_str}] from evidence {item['sources']}")
+        
+        # === View 3: 完全缺失的信息 ===
+        missing_nodes = [
+            q_text for q_text, details in query_to_evidence_details.items()
+            if not any(d['matched'] for d in details)
+        ]
+        
+        if missing_nodes:
+            lines.append("\n### ❌ No Evidence Support:")
+            for q_text in missing_nodes:
+                lines.append(f"  • '{q_text}' (not found in any evidence)")
+        
+        # === Footer: LLM 使用指引 ===
+        lines.append("\n---")
+        lines.append("**How to use this context**:")
+        lines.append("1. Prioritize [🔹 High Confidence] evidence for core facts")
+        lines.append("2. If a query component has multiple answers, check for conflicts and use external knowledge")
+        lines.append("3. If a component is in 'No Evidence Support', the answer may be 'unanswerable'")
+        lines.append("4. Cite evidence: 'According to [0], ...' or 'Evidence [2] suggests ...'")
+        
+        return "\n".join(lines)
+
     def _is_valid_node(self, vertex: Vertex) -> bool:
         """
         Filter nodes for fusion candidates:
@@ -268,12 +550,12 @@ class MultiHopFusion:
         merged_hg.log_summary(self.fusion_logger, level="INFO")
         
         if multi_source_count > 0:
-            self.fusion_logger.debug("[Merge] Sample Multi-source Vertices (Fusion Success Cases):")
+            self.fusion_logger.info("[Merge] Sample Multi-source Vertices (Fusion Success Cases):")
             count = 0
             for v_id, sources in new_vertex_provenance.items():
                 if len(sources) > 1 and count < 5:
                     v_text = new_vertices[v_id].text()
-                    self.fusion_logger.debug(f"  • Vertex [{v_id}] '{v_text}' <- Sources: {sorted(sources)}")
+                    self.fusion_logger.info(f"  • Vertex [{v_id}] '{v_text}' <- Sources: {sorted(sources)}")
                     count += 1
         else:
             self.fusion_logger.warning("[Merge] No multi-source vertices found. Fusion might be too strict or data is disjoint.")
@@ -282,108 +564,60 @@ class MultiHopFusion:
         
     def process(self, query_hg: Hypergraph, evidence_hgs: List[Hypergraph], evidence_texts: List[str]) -> Tuple[bool, str]:
         """
-        Main pipeline: Merge -> Simulate -> Check Consistency -> Generate Context
+        Main pipeline: Merge → Simulate → Reverse Trace → Structured Context
+        
+        Returns:
+            is_consistent: 固定返回 True（因为 merge 已融合所有信息，一致性判断交给 LLM）
+            context: 结构化、按证据分组的支撑信息
         """
         # 日志：开始处理
         self.consistent_logger.info("[Multi-hop] Enter multi-hop consistency detection")
         self.consistent_logger.info(f"[Multi-hop] Query: '{query_hg.doc[:50] if query_hg.doc else 'N/A'}...'")
         self.consistent_logger.info(f"[Multi-hop] Evidence count: {len(evidence_hgs)}")
         
-        # 1. Merge
+        # 1. Merge (保留 provenance)
         merged_hg, provenance = self.merge_hypergraphs(evidence_hgs)
         
-        # 2. Simulation
-        self.consistent_logger.debug("[Multi-hop] Running Hyper Simulation...")
+        # 2. Global Simulation
+        self.consistent_logger.info("[Multi-hop] Running Hyper Simulation...")
         mapping, q_map, d_map = compute_hyper_simulation(query_hg, merged_hg)
         
         self.consistent_logger.info(f"[Multi-hop] Simulation completed: {len(mapping)} query nodes mapped")
         
-        # 3. Map sim_id -> provenance
-        # d_map maps sim_id -> Vertex object (from merged_hg)
-        # provenance maps Vertex.id -> Set[source_id]
-        sim_id_to_provenance = {}
-        for sim_id, d_v in d_map.items():
-             sim_id_to_provenance[sim_id] = provenance.get(d_v.id, set())
-
-        # 3. Consistency Check (Reach Cover)
-        critical_q_vertices = []
-        for v in query_hg.vertices:
-            if any(e != Entity.NOT_ENTITY for e in v.ents) or \
-               any(n.pos in {Pos.NOUN, Pos.PROPN} for n in v.nodes):
-                critical_q_vertices.append(v)
+        # 3. Reverse Tracing: query → merged → original evidence
+        query_to_evidence_details = self._reverse_trace_consistency(
+            query_hg=query_hg,
+            merged_hg=merged_hg,
+            evidence_hgs=evidence_hgs,
+            evidence_texts=evidence_texts,
+            q_map=q_map,
+            d_map=d_map,
+            mapping=mapping,
+            provenance=provenance
+        )
         
-        self.consistent_logger.info(f"[Multi-hop] Critical query vertices to cover: {len(critical_q_vertices)}")
-        for v in critical_q_vertices:
-            self.consistent_logger.debug(f"[Multi-hop]   • Q{v.id}: '{v.text()}'")
+        # 4. Generate structured context
+        context = self._build_structured_context(
+            query_hg=query_hg,
+            query_to_evidence_details=query_to_evidence_details,
+            evidence_texts=evidence_texts,
+            merged_hg=merged_hg,
+            q_map=q_map,
+            d_map=d_map,
+            mapping=mapping,
+            provenance=provenance
+        )
+        # 日志：仅记录覆盖统计（用于监控，不影响返回）
+        covered_count = sum(
+            1 for details in query_to_evidence_details.values()
+            if any(d['matched'] for d in details)
+        )
+        total_count = len(query_to_evidence_details)
+        self.consistent_logger.info(
+            f"[Multi-hop] Coverage stats: {covered_count}/{total_count} critical nodes have evidence support"
+        )
         
-        uncovered_critical_nodes = []
-        q_node_matches = {}
-        
-        # Reverse map for convenience: q_vertex -> q_sim_id
-        q_vertex_to_sim_id = {v.id: k for k, v in q_map.items()}
-        
-        for q_v in critical_q_vertices:
-            sim_id = q_vertex_to_sim_id.get(q_v.id)
-            d_sim_ids = mapping.get(sim_id, set()) if sim_id is not None else set()
-            
-            if not d_sim_ids:
-                uncovered_critical_nodes.append(q_v)
-            else:
-                matches = []
-                for d_sim_id in d_sim_ids:
-                    d_v = d_map[d_sim_id]
-                    sources = sorted(list(sim_id_to_provenance.get(d_sim_id, set())))
-                    matches.append((d_v.text(), sources))
-                q_node_matches[q_v.text()] = matches
-
-        is_consistent = (len(uncovered_critical_nodes) == 0)
-        
-        # 日志：一致性结果
-        self.consistent_logger.info(f"[Multi-hop] Consistency Result: {'CONSISTENT' if is_consistent else 'INCONSISTENT/PARTIAL'}")
-        if not is_consistent:
-            self.consistent_logger.warning(f"[Multi-hop] {len(uncovered_critical_nodes)} critical nodes missing")
-            for v in uncovered_critical_nodes:
-                self.consistent_logger.warning(f"[Multi-hop]   • Missing: '{v.text()}'")
-        else:
-            self.consistent_logger.info(f"[Multi-hop] All {len(critical_q_vertices)} critical nodes covered")
-        
-        # 4. Enhanced Context Construction
-        lines = []
-        lines.append("## Multi-hop Consistency Analysis")
-        if is_consistent:
-            lines.append("Status: CONSISTENT (All critical query nodes covered in merged evidence)")
-        else:
-            lines.append(f"Status: INCONSISTENT / PARTIAL ({len(uncovered_critical_nodes)} critical nodes missing)")
-            
-        lines.append("\n### Evidence Usage:")
-        active_sources = set()
-        for matches in q_node_matches.values():
-            for _, srcs in matches:
-                active_sources.update(srcs)
-        
-        # 日志：证据使用情况
-        self.consistent_logger.info(f"[Multi-hop] Active evidence sources: {sorted(active_sources)}")
-        self.consistent_logger.info(f"[Multi-hop] Unused evidence sources: {sorted(set(range(len(evidence_texts))) - active_sources)}")
-                
-        for i, text in enumerate(evidence_texts):
-            status = "USED" if i in active_sources else "UNUSED"
-            lines.append(f"[{i}] {status}: {text[:100]}..." if len(text) > 100 else f"[{i}] {status}: {text}")
-
-        lines.append("\n### Reasoning Path:")
-        for q_text, matches in q_node_matches.items():
-            lines.append(f"- Query: '{q_text}'")
-            for d_text, srcs in matches:
-                lines.append(f"  -> Match: '{d_text}' (Sources: {srcs})")
-        
-        if uncovered_critical_nodes:
-            lines.append("\n### Missing Information:")
-            for v in uncovered_critical_nodes:
-                lines.append(f"- Missing: '{v.text()}'")
-
-        context = "\n".join(lines)
-        
-        # 日志：最终输出
         self.consistent_logger.info(f"[Multi-hop] Enhanced context generated, length: {len(context)} chars")
-        self.consistent_logger.debug(f"[Multi-hop] Context preview:\n{context}")
+        self.consistent_logger.info(f"[Multi-hop] Context preview:\n{context}...")
 
-        return is_consistent, context
+        return context  # ✅ is_consistent 固定为 True
