@@ -4,7 +4,7 @@ from typing import List, Tuple, Set, Dict
 
 from hyper_simulation.query_instance import QueryInstance
 from hyper_simulation.hypergraph.hypergraph import Hypergraph as LocalHypergraph, Vertex
-from hyper_simulation.hypergraph.dependency import Entity, Pos, Dep
+from hyper_simulation.hypergraph.linguistic import Entity, Pos, Dep
 from hyper_simulation.component.hyper_simulation import compute_hyper_simulation
 from hyper_simulation.component.embedding import get_embedding_batch, cosine_similarity
 from hyper_simulation.utils.log import getLogger

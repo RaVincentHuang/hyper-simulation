@@ -14,6 +14,9 @@ from hyper_simulation.hypergraph.dependency import Node, LocalDoc, Dependency
 from hyper_simulation.hypergraph.hypergraph import Hypergraph as LocalHypergraph, Vertex, Node, Hyperedge
 from hyper_simulation.utils.clean import clean_text_for_spacy
 from hyper_simulation.hypergraph.corref import CorrefCluster, mark_corref
+from hyper_simulation.hypergraph.abstraction import TokenEntityAdder
+
+import time
 
 def get_nlp() -> spacy.Language:
     nlp = spacy.load("en_core_web_trf")
@@ -38,7 +41,8 @@ def print_dep_tokens(doc: Doc, title: str) -> None:
     print(f"\n[{title}] Tokens / Lemma / Dep / Head / Ent / POS / TAG")
     for token in doc:
         print(
-            "Token: '{text}', Lemma: '{lemma}', Dep: {dep} ['{head}'], Ent: {ent}, POS: {pos}, TAG: {tag}".format(
+            "[{i}]: '{text}', Lemma: '{lemma}', Dep: {dep} ['{head}'], Ent: {ent}, POS: {pos}, TAG: {tag}".format(
+                i=token.i,
                 text=token.text,
                 lemma=token.lemma_,
                 dep=token.dep_,
@@ -58,7 +62,7 @@ def render_dep_html(doc: Doc, output_path: Path, title: str) -> None:
 
 def format_vertex(vertex: Vertex) -> str:
     nodes = "\n".join(
-        f"    - '{node.text}' (pos={node.pos.name}, dep={node.dep.name}, ent={node.ent.name})"
+        f"    - '{node.text}' (pos={node.pos.name}, dep={node.dep.name}, ent={node.ent.name}, ENT={node.entity.name if node.entity else 'None'})"
         for node in vertex.nodes
     )
     return f"[{vertex.id}] '{vertex.text()}'\n{nodes}"
@@ -90,23 +94,25 @@ def _parse_steps(steps: str) -> Set[int]:
 def debug_text_to_hypergraph(
     text: str, output_dir: str = "logs/dep_debug", steps: Iterable[int] | None = None, is_query: bool = False
 ) -> LocalHypergraph:
+    time0 = time.time()
     output_base = Path(output_dir)
     output_base.mkdir(parents=True, exist_ok=True)
     steps_set = set(steps) if steps is not None else {1, 2, 3, 4}
     text = clean_text_for_spacy(text)
     nlp = get_nlp()
     cfg = {"fastcoref": {"resolve_text": True}} if "fastcoref" in nlp.pipe_names else {}
+    time15 = time.time()
     doc = nlp(text, component_cfg=cfg)
 
     print(f"\n[Input Text]:\n {text}")
-    
+    time1 = time.time()
     # 1) 原始依存分析
     if 1 in steps_set:
         print_dep_tokens(doc, "Step 1 - Raw (before combine)")
         for ent in doc.ents:
             print(f"Entity: '{ent.text}' ({ent.label_}), id: [{ent.start}, {ent.end})")
         render_dep_html(doc, output_base / "step1_raw_dep.html", "Step 1 - Raw (before combine)")
-
+    abstracter = TokenEntityAdder("qwen_ontology_mapping.json")
     # combine + retokenize
     correfs = calc_correfs_str(doc) if hasattr(doc._, "coref_clusters") else set()
     links_to_merge = combine_links(doc)
@@ -117,14 +123,16 @@ def debug_text_to_hypergraph(
     print(f"Correfs : {correfs}")
     corref_clusters = CorrefCluster.from_doc(doc)
     spans_to_merge = combine(doc, correfs, is_query=is_query, corefs_clusters=corref_clusters)
+    
+    abstracter.set_entity_from_spans(spans_to_merge, doc)
+    
     with doc.retokenize() as retokenizer:
         for span in spans_to_merge:
             # print(f"Merging span: '{span.text}' (start={span.start}, end={span.end}, label={span.label_})")
             retokenizer.merge(span)
-
     corref_clusters = CorrefCluster.update_by_doc(corref_clusters, doc)
-    
     # 2) combine 后依存分析
+    time2 = time.time()
     if 2 in steps_set:
         print_dep_tokens(doc, "Step 2 - Combined (after retokenize)")
         render_dep_html(
@@ -140,10 +148,10 @@ def debug_text_to_hypergraph(
             continue
         
         mention_text = ", ".join([mention.text for mention in cluster.mentions])
-        primary_text = cluster.primary_mention.text if cluster.primary_mention else "None"
+        primary_text = ", ".join(sorted({mention.text for mention in cluster.is_primary_mention})) if cluster.is_primary_mention else "None"
         print(f"Cluster [{idx}]: [{mention_text}], primary={primary_text}")
     print(f"Resolved Text: {getattr(doc._, 'resolved_text', None)}")
-    nodes, roots = Node.from_doc(doc)
+    nodes, roots = Node.from_doc(doc, abstracter)
     nodes = mark_corref(nodes, corref_clusters)
     local_doc = LocalDoc(doc)
     dep = Dependency(nodes, roots, local_doc, is_query=is_query)
@@ -155,6 +163,7 @@ def debug_text_to_hypergraph(
         .compress_dependencies()
         .calc_relationships()
     )
+    time3 = time.time()
     if 3 in steps_set:
         print("\n[Step 3 - Vertices] (after coreference & vertex construction)")
         # for k, v in id_map.items():
@@ -162,7 +171,8 @@ def debug_text_to_hypergraph(
         vertex_objs = Vertex.from_nodes(vertices, id_map)
         for vertex in sorted(vertex_objs, key=lambda v: v.id):
             print(format_vertex(vertex))
-
+    
+    time4 = time.time()
     # 4) hyperedges
     hypergraph = LocalHypergraph.from_rels(vertices, rels, id_map, local_doc)
     hypergraph.original_text = text
@@ -174,7 +184,8 @@ def debug_text_to_hypergraph(
             print(
                 f"[{idx}]  '{root_text}'({','.join(vertices)}); '{edge.text()}'"
             )
-
+    time5 = time.time()
+    print(f"\n⏱️ Timing (seconds): Step 1={time1-time0:.2f}({(time1-time0)/(time5-time0)*100:.1f}%) while loading takes {time15-time0:.2f}({(time15-time0)/(time5-time0)*100:.1f}%), Step 2={time2-time1:.2f}({(time2-time1)/(time5-time0)*100:.1f}%), Step 3={time3-time2:.2f}({(time3-time2)/(time5-time0)*100:.1f}%), Step 4={time4-time3:.2f}({(time4-time3)/(time5-time0)*100:.1f}%), Total={time5-time0:.2f}")
     return hypergraph
 
 

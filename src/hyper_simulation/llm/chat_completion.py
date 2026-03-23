@@ -19,10 +19,10 @@ def get_generate(prompts: list[str], model: ChatOllama) -> list:
     messages_list: list[list[BaseMessage]] = [
         [HumanMessage(content=prompt)] for prompt in prompts
     ]
-    print("generated_answer")
+    # print("generated_answer")
     responses = model.generate(messages_list)
     res = [generate[0].text for generate in responses.generations]
-    print(f"answer: {res}")
+    # print(f"answer: {res}")
     return res
 
 def get_invoke(model: ChatOllama, text: str, **args):

@@ -8,13 +8,15 @@ LEGALBENCH_CORPORATE_LOBBYING_BASE = """### Bill:
 You are analyzing whether a proposed bill is relevant to a specific company's business interests.
 Determine if the company would likely take an interest in (lobby for/against) this bill.
 
-Consider:
-1) The bill's subject matter and potential impact
-2) The company's likely business interests and sector
-3) Whether the bill could affect the company's operations, revenue, or obligations
+**Please answer directly following these rules:**
+1. Think through the question internally, but **do not output your reasoning process**
+2. Consider the bill's subject matter and potential impact, the company's likely business interests and sector, and whether the bill could affect the company's operations, revenue, or obligations.
+3. Output **only** the final answer ("Yes" or "No") in this exact format:
+   ### Final Answer: <your answer>
+4. If unanswerable, output:
+   ### Final Answer: unanswerable
 
-Output "Yes" if the bill is relevant to the company's interests, or "No" if it is not.
-Provide only the answer, no explanation.
+**Important:** Do not include any explanation, step-by-step analysis, or intermediate thoughts. Just output the final answer line.
 
-### Answer:
+### Response:
 """

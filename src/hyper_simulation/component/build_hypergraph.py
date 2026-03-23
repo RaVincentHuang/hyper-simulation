@@ -12,9 +12,11 @@ from tqdm import tqdm
 from fastcoref import spacy_component
 from hyper_simulation.query_instance import QueryInstance
 from hyper_simulation.hypergraph.hypergraph import Hypergraph as LocalHypergraph
+
 from hyper_simulation.hypergraph.dependency import Node, LocalDoc, Dependency
 from hyper_simulation.hypergraph.combine import combine, calc_correfs_str, combine_links
 from hyper_simulation.utils.clean import clean_text_for_spacy
+from hyper_simulation.hypergraph.abstraction import TokenEntityAdder
 
 from hyper_simulation.hypergraph.corref import CorrefCluster, mark_corref
 from spacy.symbols import ORTH
@@ -82,9 +84,41 @@ def get_nlp() -> spacy.Language:
     return _NLP
 
 def text_to_doc(text: str) -> Doc:
+    """
+    将文本转换为 spaCy Doc 对象，带 fastcoref 错误处理
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     nlp = get_nlp()
-    cfg = {"fastcoref": {'resolve_text': True}} if "fastcoref" in nlp.pipe_names else {}
-    return nlp(text, component_cfg=cfg)
+    
+    # ✅ 尝试使用 fastcoref
+    if "fastcoref" in nlp.pipe_names:
+        try:
+            cfg = {"fastcoref": {'resolve_text': True}}
+            doc = nlp(text, component_cfg=cfg)
+            
+            # ✅ 验证 coref_clusters 格式是否正确
+            if hasattr(doc._, "coref_clusters") and doc._.coref_clusters:
+                for cluster in doc._.coref_clusters:
+                    if cluster is None:
+                        raise ValueError("coref_clusters contains None")
+                    for span in cluster:
+                        if span is None or not isinstance(span, (list, tuple)) or len(span) != 2:
+                            raise ValueError(f"Invalid span in coref_clusters: {span}")
+            
+            return doc
+            
+        except Exception as e:
+            # ✅ fastcoref 失败，降级为不使用 coref
+            logger.warning(
+                f"[text_to_doc] fastcoref failed for text (len={len(text)}): {type(e).__name__}: {e}, "
+                f"falling back to no coref"
+            )
+    
+    # ✅ 兜底：不使用 fastcoref
+    doc = nlp(text)
+    return doc
 
 def doc_to_hypergraph(doc: Doc, text: str, is_query: bool = False) -> LocalHypergraph:
     correfs = calc_correfs_str(doc) if hasattr(doc._, "coref_clusters") else set()
@@ -95,11 +129,13 @@ def doc_to_hypergraph(doc: Doc, text: str, is_query: bool = False) -> LocalHyper
             retokenizer.merge(link)
     corref_clusters = CorrefCluster.from_doc(doc)
     spans_to_merge = combine(doc, correfs, is_query=is_query, corefs_clusters=corref_clusters)
+    abstractor = TokenEntityAdder("qwen_ontology_mapping.json")
     with doc.retokenize() as retokenizer:
         for span in spans_to_merge:
-            retokenizer.merge(span)
+            if span.start < span.end:
+                retokenizer.merge(span)
     corref_clusters = CorrefCluster.update_by_doc(corref_clusters, doc)
-    nodes, roots = Node.from_doc(doc)
+    nodes, roots = Node.from_doc(doc, abstractor)
     nodes = mark_corref(nodes, corref_clusters)
     local_doc = LocalDoc(doc)
     dep = Dependency(nodes, roots, local_doc, is_query=is_query)
@@ -164,6 +200,14 @@ def build_hypergraph_for_query_instance(
 def test_build_hypergraph_for_query_instance(query_instance: QueryInstance) -> tuple[LocalHypergraph, List[LocalHypergraph]]:
     query_hg = text_to_hypergraph(query_instance.query, is_query=True)
     data_list = [text_to_hypergraph(doc_text, is_query=False) for doc_text in query_instance.data]
+    with open("missing.txt", "a") as f:
+        for h in [query_hg] + data_list:
+            for v in h.vertices:
+                if not v.is_noun():
+                    continue
+                if v.has_entity():
+                    continue
+                f.write(f"{v.text().strip().lower()}\n")
     return query_hg, data_list
 
 def build_hypergraph_batch(

@@ -8,6 +8,8 @@ from pathlib import Path
 import json
 import jsonlines
 
+from hyper_simulation.hypergraph.abstraction import TokenEntityAdder
+
 def load_hotpotqa_data(file_path: str) -> List[Dict[str, Any]]:
     """
     加载HotpotQA数据集

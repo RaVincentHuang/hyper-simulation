@@ -1,4 +1,6 @@
-from hyper_simulation.hypergraph.dependency import LocalDoc, Node, Pos, Entity, Relationship, Dep, Tag
+from hyper_simulation.hypergraph.dependency import LocalDoc, Node, Relationship
+from hyper_simulation.hypergraph.linguistic import QueryType, Pos, Tag, Dep, Entity
+from hyper_simulation.hypergraph.entity import ENT
 import itertools
 import logging
 logger = logging.getLogger(__name__)
@@ -159,6 +161,9 @@ class Vertex:
             return True  # 如果任一顶点没有来源信息，默认认为它们可能相关
         return bool(self.provenance_ids & other.provenance_ids)
     
+    def is_noun(self) -> bool:
+        return any(p in {Pos.NOUN, Pos.PROPN} for p in self.poses)
+    
     def is_pronoun(self) -> bool:
         return all(p == Pos.PRON for p in self.poses)
     
@@ -290,6 +295,11 @@ class Vertex:
         if not self.nodes:
             return Dep.ROOT
         return self.nodes[0].dep
+    
+    def has_entity(self) -> bool:
+        ner = any(e != Entity.NOT_ENTITY for e in self.ents)
+        wordnet = any(n.entity and n.entity != ENT.NOT_ENT for n in self.nodes)
+        return ner or wordnet
 
 class Hyperedge:
     def __init__(self, root: Vertex, vertices: list[Vertex], desc: str, full_desc: str, start: int, end: int):

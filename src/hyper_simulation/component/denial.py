@@ -1,9 +1,9 @@
 from hyper_simulation.hypergraph.hypergraph import Hyperedge, Hypergraph, Node, Vertex, LocalDoc
 from typing import Dict, List, Set, Tuple, Optional, Union
 from hyper_simulation.component.nli import get_nli_labels_with_score_batch, get_nli_label
-from hyper_simulation.hypergraph.dependency import Entity, QueryType
+from hyper_simulation.hypergraph.linguistic import Entity, QueryType
 from hyper_simulation.hypergraph.hypergraph import Hyperedge, Hypergraph, Node, Vertex, LocalDoc
-from hyper_simulation.hypergraph.dependency import Pos, Dep, Entity
+from hyper_simulation.hypergraph.linguistic import Pos, Dep
 from hyper_simulation.utils.log import getLogger
 
 def is_not_denial_with_score_batch(vertices_pairs: list[tuple[Vertex, Vertex]]) -> List[Tuple[bool, float]]:

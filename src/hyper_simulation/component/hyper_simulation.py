@@ -3,7 +3,7 @@ from typing import Dict, List, Set, Tuple
 from hyper_simulation.hypergraph.hypergraph import Hypergraph as LocalHypergraph, Vertex
 from simulation import Hypergraph as SimHypergraph, Hyperedge as SimHyperedge, Node, Delta, DMatch
 from hyper_simulation.component.semantic_cluster import calc_semantic_cluster_pairs, get_d_match
-from hyper_simulation.hypergraph.dependency import Pos
+from hyper_simulation.hypergraph.linguistic import Pos
 from hyper_simulation.component.denial import get_matched_vertices, compute_allowed_pairs
 import warnings
 from tqdm import tqdm

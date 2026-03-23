@@ -20,3 +20,7 @@ logs/
 
 *.log
 *.trace
+
+mid_result/
+logs/
+logs_1/

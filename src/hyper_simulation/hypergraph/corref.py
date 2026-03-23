@@ -2,17 +2,18 @@ from spacy.tokens import Doc, Span, Token
 from typing import List, Tuple
 from dataclasses import dataclass
 
-from hyper_simulation.hypergraph.dependency import Node, Dep, Pos, Entity, Tag
+from hyper_simulation.hypergraph.linguistic import QueryType, Pos, Tag, Dep, Entity
+from hyper_simulation.hypergraph.dependency import Node
 from hyper_simulation.hypergraph.hypergraph import Hypergraph, Vertex, Hyperedge
 
 class CorrefCluster:
-    def __init__(self, cluster_id: int, mentions: list[Span], primary_mention: Span | None=None):
+    def __init__(self, cluster_id: int, mentions: list[Span]):
         self.cluster_id: int = cluster_id
         self.mentions: list[Span] = mentions
-        self.primary_mention: Span | None = primary_mention
+        self.is_primary_mention: set[Span] = set()
         
         self.changed_ranges: list[Tuple[int, int]] = []  # List of (start, end) character index ranges that have been changed for this cluster
-        self.changed_primary_range: Tuple[int, int] = (-1, -1)  # (start, end) character index range for the primary mention
+        self.changed_primary_ranges: list[Tuple[int, int]] = []  # List of (start, end) character index ranges for all primary mentions
         
         self.dropped: bool = False  # Whether this cluster is dropped due to merge conflicts
         self.covered_nodes_if_dropped: list[list[Node]] = []  # If dropped, the list of node lists that this cluster's mentions would have covered (for debugging)
@@ -23,11 +24,11 @@ class CorrefCluster:
     def is_dropped(self) -> bool:
         return self.dropped
         
-    def get_current_index(self) -> Tuple[List[Tuple[int, int]], Tuple[int, int]]:
-        # return list of (start, end) for mentions and (start, end) for primary mention
+    def get_current_index(self) -> Tuple[List[Tuple[int, int]], List[Tuple[int, int]]]:
+        # return list of (start, end) for mentions and list of (start, end) for primary mentions
         mention_indices = [(mention.start, mention.end) for mention in self.mentions]
-        primary_index = (self.primary_mention.start, self.primary_mention.end) if self.primary_mention else (-1, -1)
-        return mention_indices, primary_index
+        primary_indices = [(mention.start, mention.end) for mention in self.is_primary_mention]
+        return mention_indices, primary_indices
     
     def _calc_changed_ranges(self):
         # Calculate changed ranges based on current mentions
@@ -37,13 +38,12 @@ class CorrefCluster:
             char_start = mention.start_char
             char_end = mention.end_char
             self.changed_ranges.append((char_start, char_end))
-        if self.primary_mention:
-            self.changed_primary_range = (self.primary_mention.start_char, self.primary_mention.end_char)
-        else:
-            self.changed_primary_range = (-1, -1)
+        self.changed_primary_ranges = [
+            (mention.start_char, mention.end_char) for mention in self.is_primary_mention
+        ]
             
     # @staticmethod
-    # def from_raw_indexes(doc: Doc, mention_char_indices: list[Tuple[int, int]], primary_mention_char_index: Tuple[int, int]) -> List['CorrefCluster']:
+    # def from_raw_indexes(doc: Doc, mention_char_indices: list[Tuple[int, int]], primary_mention_char_indices: list[Tuple[int, int]]) -> List['CorrefCluster']:
     #     # Assume new token saves ._.raw_start, ._.raw_end
         
         
@@ -59,7 +59,7 @@ class CorrefCluster:
             # HINT: doc[i:j] is different from doc.text[i:j], the former index is based on tokens while the latter is based on characters
             # therefore, we need to convert the character index to token index
             mentions: list[Span] = []
-            primary_mention = None
+            primary_mentions: list[Span] = []
             for char_start, char_end in cluster:
                 token_start = None
                 token_end = None
@@ -74,12 +74,14 @@ class CorrefCluster:
                     span = Span(doc, token_start, token_end)
                     mentions.append(span)
                     if span.text in resolved_text:
-                        primary_mention = span
+                        primary_mentions.append(span)
                 else:
                     assert False, f"Failed to find token span for char span ({char_start}, {char_end}) in cluster {cluster}"
             cluster_id = len(clusters)
-            clusters.append(CorrefCluster(cluster_id, mentions, primary_mention))
-        
+            cluster = CorrefCluster(cluster_id, mentions)
+            for mention in primary_mentions:
+                cluster.is_primary_mention.add(mention)
+            clusters.append(cluster)
         return clusters
     
     @staticmethod
@@ -90,9 +92,10 @@ class CorrefCluster:
             cluster._calc_changed_ranges()
             
         
-        # Like from_doc, but we use the old cluster's changed_ranges and changed_primary_range to find the new mentions and primary mention in the updated doc.
+        # Like from_doc, but we use the old cluster's changed_ranges and changed_primary_ranges to find
+        # the new mentions and primary mentions in the updated doc.
         # We do not use the resolved_text any more
-        def _char_range_to_span(char_start: int, char_end: int) -> Span:
+        def _char_range_to_span(char_start: int, char_end: int) -> Span | None:
             token_start = None
             token_end = None
             for token in doc:
@@ -103,30 +106,35 @@ class CorrefCluster:
                 if token_start is not None and token_end is not None:
                     break
 
-            assert token_start is not None and token_end is not None, (
-                f"Failed to find token span for char span ({char_start}, {char_end}) in updated doc"
-            )
+            # ✅ 修改: assert → return None + log
+            if token_start is None or token_end is None:
+                print(
+                    f"[Corref] Failed to map char span ({char_start}, {char_end}) "
+                    f"to tokens in updated doc (len={len(doc)}), skipping"
+                )
+                return None
             return Span(doc, token_start, token_end)
 
         for old_cluster in old_clusters:
             mentions: list[Span] = []
-            primary_mention: Span | None = None
+            primary_mentions: list[Span] = []
 
             for char_start, char_end in old_cluster.changed_ranges:
                 span = _char_range_to_span(char_start, char_end)
-                mentions.append(span)
+                if span is not None:  # ✅ 过滤 None
+                    mentions.append(span)
 
-                if (char_start, char_end) == old_cluster.changed_primary_range:
-                    primary_mention = span
+            for p_start, p_end in old_cluster.changed_primary_ranges:
+                p_span = _char_range_to_span(p_start, p_end)
+                if p_span is None:
+                    continue
+                if not any(m.start == p_span.start and m.end == p_span.end for m in mentions):
+                    mentions.append(p_span)
+                if not any(m.start == p_span.start and m.end == p_span.end for m in primary_mentions):
+                    primary_mentions.append(p_span)
 
-            # Keep primary mention in sync even if its char range was not present in changed_ranges.
-            if primary_mention is None and old_cluster.changed_primary_range != (-1, -1):
-                p_start, p_end = old_cluster.changed_primary_range
-                primary_mention = _char_range_to_span(p_start, p_end)
-                if not any(m.start == primary_mention.start and m.end == primary_mention.end for m in mentions):
-                    mentions.append(primary_mention)
-
-            new_cluster = CorrefCluster(old_cluster.cluster_id, mentions, primary_mention)
+            new_cluster = CorrefCluster(old_cluster.cluster_id, mentions)
+            new_cluster.is_primary_mention = set(primary_mentions)
             if old_cluster.is_dropped():
                 new_cluster.drop()
             clusters.append(new_cluster)
@@ -136,15 +144,15 @@ class CorrefCluster:
     @staticmethod
     def fixup_clusters(clusters: List['CorrefCluster'], spans_to_merge: List[Span]) -> Tuple[List['CorrefCluster'], List[Span]]:
         
-        print(f"Fixing up {len(clusters)} coreference clusters with {len(spans_to_merge)} spans to merge...")
-        # print clusters
-        for cluster in clusters:
-            mention_texts = [f"'{mention.text}'({mention.root.text}, [{mention.root.i}])" for mention in cluster.mentions]
-            print(f"  Cluster {cluster.cluster_id}: {', '.join(mention_texts)}, primary: {cluster.primary_mention.text if cluster.primary_mention else None}")
-        # print spans_to_merge
-        print(f"  Spans to merge:")
-        for span in spans_to_merge:
-            print(f"    '{span.text}' (start={span.start}, end={span.end})")
+        # print(f"Fixing up {len(clusters)} coreference clusters with {len(spans_to_merge)} spans to merge...")
+        # # print clusters
+        # for cluster in clusters:
+        #     mention_texts = [f"'{mention.text}'({mention.root.text}, [{mention.root.i}])" for mention in cluster.mentions]
+        #     print(f"  Cluster {cluster.cluster_id}: {', '.join(mention_texts)}, primaries: {[m.text for m in cluster.is_primary_mention]}")
+        # # print spans_to_merge
+        # print(f"  Spans to merge:")
+        # for span in spans_to_merge:
+        #     print(f"    '{span.text}' (start={span.start}, end={span.end})")
         
         @dataclass
         class _KeptEntry:
@@ -182,6 +190,35 @@ class CorrefCluster:
         if not clusters or not spans_to_merge:
             return clusters, []
 
+        # # Within each cluster, remove redundant mentions that share the same root token.
+        # # Keep the longest mention for each root token.
+        # for cluster in clusters:
+        #     if cluster.is_dropped() or not cluster.mentions:
+        #         continue
+            
+        #     root_to_mentions: dict[int, list[tuple[int, int]]] = {}  # root_idx -> [(span_len, mention_idx)]
+        #     for mention_idx, mention in enumerate(cluster.mentions):
+        #         root_idx = mention.root.i
+        #         span_len = mention.end - mention.start
+        #         if root_idx not in root_to_mentions:
+        #             root_to_mentions[root_idx] = []
+        #         root_to_mentions[root_idx].append((span_len, mention_idx))
+            
+        #     mentions_to_drop: set[int] = set()
+        #     for root_idx, entries in root_to_mentions.items():
+        #         if len(entries) <= 1:
+        #             continue
+        #         # Keep the longest mention; drop all others sharing this root
+        #         best_mention_idx = max(entries, key=lambda e: (e[0], -e[1]))[1]  # tiebreak: largest mention_idx
+        #         for span_len, mention_idx in entries:
+        #             if mention_idx != best_mention_idx:
+        #                 mentions_to_drop.add(mention_idx)
+            
+        #     # Remove dropped mentions and update is_primary_mention
+        #     if mentions_to_drop:
+        #         cluster.mentions = [m for i, m in enumerate(cluster.mentions) if i not in mentions_to_drop]
+        #         cluster.is_primary_mention = {m for m in cluster.is_primary_mention if m in cluster.mentions}
+
         # Pre-sort once so downstream scans can early-break.
         sorted_merges = sorted(spans_to_merge, key=lambda s: (s.start, s.end))
 
@@ -211,10 +248,13 @@ class CorrefCluster:
                     owners.append(m)
             if not owners:
                 return None
-            assert len(owners) == 1, (
-                "Expected token-disjoint spans_to_merge; "
-                f"root token {root_index} belongs to {len(owners)} merge spans"
-            )
+            # ✅ 修改: assert → warning + 返回第一个
+            if len(owners) != 1:
+                print(
+                    f"[Corref] Root {root_index} belongs to {len(owners)} merge spans "
+                    f"(expected 1): {[o.text for o in owners]}, using first"
+                )
+                return owners[0]  # 降级：返回第一个，避免崩溃
             return owners[0]
 
         def _partition_by_merges(a: Span) -> list[Span]:
@@ -252,17 +292,18 @@ class CorrefCluster:
 
         # Keep per-mention rewritten spans first, then resolve overlap among kept A\\B spans.
         rewritten_mentions: list[list[Span]] = []
-        primary_source_indices: list[int | None] = []
+        primary_source_indices: list[set[int]] = []
         kept_entries: list[_KeptEntry] = []
 
         for cluster_idx, cluster in enumerate(clusters):
             if cluster.is_dropped() or not cluster.mentions:
                 rewritten_mentions.append([])
-                primary_source_indices.append(None)
+                primary_source_indices.append(set())
                 continue
 
             fixed_mentions: list[Span] = []
-            primary_source_idx: int | None = None
+            primary_source_idx_set: set[int] = set()
+            primary_mentions_in_cluster = set(cluster.is_primary_mention)
 
             for mention_idx, mention in enumerate(cluster.mentions):
                 root_index = mention.root.i
@@ -294,17 +335,14 @@ class CorrefCluster:
 
                 fixed_mentions.append(fixed)
 
-                if (
-                    primary_source_idx is None
-                    and
-                    cluster.primary_mention is not None
-                    and mention.start == cluster.primary_mention.start
-                    and mention.end == cluster.primary_mention.end
+                if any(
+                    mention.start == p.start and mention.end == p.end
+                    for p in primary_mentions_in_cluster
                 ):
-                    primary_source_idx = mention_idx
+                    primary_source_idx_set.add(mention_idx)
 
             rewritten_mentions.append(fixed_mentions)
-            primary_source_indices.append(primary_source_idx)
+            primary_source_indices.append(primary_source_idx_set)
 
         # Resolve overlap among kept A\\B spans with sorted-window scanning.
         # We apply one mutation per iteration and re-sort to keep scans minimal and consistent.
@@ -316,11 +354,16 @@ class CorrefCluster:
                 a_entry = kept_entries[i]
                 a_span = a_entry.span
                 a_root = a_entry.root_index
+                # ✅ 关键修复 1: 跳过空 span (2 行)
+                if a_span.start >= a_span.end:
+                    continue
 
                 for j in order[pos + 1 :]:
                     b_entry = kept_entries[j]
                     b_span = b_entry.span
-
+                    # ✅ 关键修复 2: 跳过空 span (2 行)
+                    if b_span.start >= b_span.end:
+                        continue
                     # Since ordered by start, no later span can overlap once start >= current end.
                     if b_span.start >= a_span.end:
                         break
@@ -328,7 +371,22 @@ class CorrefCluster:
                         continue
 
                     b_root = b_entry.root_index
-                    assert a_root != b_root, "Overlapping kept spans must have different roots"
+                    
+                    # ✅ 防御性处理：root 相同的重叠 span（原 assert 改为 warning + 自动解决）
+                    if a_root == b_root:
+                        print(
+                            f"[Corref] Overlapping spans with same root {a_root}: "
+                            f"'{a_span.text}' (cluster {a_entry.cluster_idx}) vs "
+                            f"'{b_span.text}' (cluster {b_entry.cluster_idx}), "
+                            f"keeping longer span"
+                        )
+                        # 策略：保留较长的 span，将较短的标记为空（后续会被过滤）
+                        if a_span.end - a_span.start <= b_span.end - b_span.start:
+                            a_entry.span = Span(a_span.doc, a_span.start, a_span.start)  # 空 span
+                        else:
+                            b_entry.span = Span(b_span.doc, b_span.start, b_span.start)
+                        changed = True
+                        break  # 重新排序后继续处理
 
                     # New rule:
                     # root on the left keeps to root; root on the right keeps from root.
@@ -357,7 +415,7 @@ class CorrefCluster:
             span = entry.span
             rewritten_mentions[cluster_idx][mention_idx] = span
 
-        # Finalize cluster mentions with per-cluster dedup and synchronized primary_mention.
+        # Finalize cluster mentions with per-cluster dedup and synchronized primary mentions.
         for cluster_idx, cluster in enumerate(clusters):
             fixed_mentions = rewritten_mentions[cluster_idx] if cluster_idx < len(rewritten_mentions) else []
             if not fixed_mentions:
@@ -369,13 +427,19 @@ class CorrefCluster:
                     dedup_mentions.append(m)
             cluster.mentions = dedup_mentions
 
-            source_idx = primary_source_indices[cluster_idx] if cluster_idx < len(primary_source_indices) else None
-            if source_idx is not None and 0 <= source_idx < len(fixed_mentions):
-                primary_candidate = fixed_mentions[source_idx]
-                cluster.primary_mention = next(
-                    (m for m in dedup_mentions if m.start == primary_candidate.start and m.end == primary_candidate.end),
-                    cluster.primary_mention,
-                )
+            source_idx_set = primary_source_indices[cluster_idx] if cluster_idx < len(primary_source_indices) else set()
+            new_primary_mentions: set[Span] = set()
+            for source_idx in source_idx_set:
+                if 0 <= source_idx < len(fixed_mentions):
+                    primary_candidate = fixed_mentions[source_idx]
+                    mapped_primary = next(
+                        (m for m in dedup_mentions if m.start == primary_candidate.start and m.end == primary_candidate.end),
+                        None,
+                    )
+                    if mapped_primary is not None:
+                        new_primary_mentions.add(mapped_primary)
+
+            cluster.is_primary_mention = new_primary_mentions
 
         kept_a_minus_b_spans: list[Span] = []
         for entry in kept_entries:
@@ -453,8 +517,9 @@ def mark_corref(nodes: List[Node], corref_clusters: List[CorrefCluster]) -> List
             node.correfence_id = cluster.cluster_id
 
         primary_span_token_ids: set[int] = set()
-        if cluster.primary_mention is not None:
-            primary_span_token_ids = {token.i for token in cluster.primary_mention}
+        if cluster.is_primary_mention:
+            for primary_span in cluster.is_primary_mention:
+                primary_span_token_ids.update(token.i for token in primary_span)
 
         def _rank_with_span_preference(node: Node) -> tuple[int, int, int, int, int]:
             base_rank = _coref_primary_rank(node)
