@@ -1,4 +1,4 @@
-[project]
+[workspace]
 authors = ["RaVincentHuang <18573104293@163.com>"]
 channels = ["conda-forge"]
 name = "hyper-simulation"
@@ -27,7 +27,7 @@ clean = { cmd = "python src/hyper_simulation/utils/clean.py"}
 # python = "3.11.*"
 pip = ">=25.0.1,<26"
 libstdcxx-ng = ">=15.2.0,<16"
-# maturin = ">=1.8.3,<2"
+maturin = ">=1.8.3,<2"
 # faiss-gpu = { path = "lib/faiss-gpu-1.10.0-py3.11_h4818125_0_cuda12.1.1.conda"}
 # faiss-cpu = { version = ">=1.9.0"}
 
@@ -37,7 +37,6 @@ libstdcxx-ng = ">=15.2.0,<16"
 # tqdm = ">=4.67.1, <5"
 # torch = { version = ">=2.5.1", index = "https://download.pytorch.org/whl/cu121" }
 thefuzz = ">=0.22.1, <0.23"
-simulation-alg = ">=0.1.9, <0.2"
 
 [feature.naive.dependencies]
 python = "3.11.*"
@@ -67,6 +66,7 @@ python = "3.10.*"
 
 [feature.hypergraph.pypi-dependencies]
 hyper-simulation = { path = ".", editable = true }
+aiohttp = "!=3.11.14"
 spacy = "==3.4.1"
 thefuzz = "==0.22.1"
 nltk = "==3.9.2"
