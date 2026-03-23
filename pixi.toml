@@ -82,20 +82,23 @@ langchain_core = "*"
 [feature.hypergraph.tasks]
 dependency = { cmd = "python tests/test_dependency.py"}
 build = { cmd = "python src/hyper_simulation/question_answer/rag_no_retrival.py --method hyper_simulation --build" }
-# pixi run -e hypergraph build --data_path /home/vincent/.dataset/HotpotQA/sample20distractor --task hotpotqa
-# pixi run -e hypergraph build --data_path /home/vincent/.dataset/musique/sample50 --task musique
-# pixi run -e hypergraph build --data_path /home/vincent/.dataset/MultiHop/sample50 --task multihop
-# pixi run -e hypergraph build --data_path /home/vincent/.dataset/LegalBench/sample50 --task legalbench/entailment
-
+# pixi run -e hypergraph build --data_path /home/vincent/.dataset/HotpotQA/sample1000 --task hotpotqa
+# pixi run -e hypergraph build --data_path /home/vincent/.dataset/musique/sample2000 --task musique
+# pixi run -e hypergraph build --data_path /home/vincent/.dataset/MultiHop/sample2500 --task multihop
+# pixi run -e hypergraph build --data_path /home/vincent/.dataset/ARC/sample_ARC --task ARC
+# pixi run -e hypergraph build --data_path /home/vincent/.dataset/LegalBench/sample500 --task LegalBench
 test_build = { cmd = "python tests/test_hypergrah_gen.py"}
 display = { cmd = "python tests/tools/spacy_debug.py" }
+wordnet = { cmd = "python tests/tools/wordnet_X.py" }
+linking = { cmd = "python src/hyper_simulation/hypergraph/linking.py" }
 
 [feature.simulation.dependencies]
 python = "3.10.*"
-
+sentencepiece = "*"
+protobuf = "*"
 [feature.simulation.pypi-dependencies]
 hyper-simulation = { path = ".", editable = true }
-simulation-alg = ">=0.1.9, <0.2"
+simulation-alg = ">=0.1.10, <0.2"
 numpy = ">=1.26.2,<2"
 nltk = ">=3.9.2, <4"
 pywsd = ">=1.2.5, <2"
@@ -110,13 +113,20 @@ pre = { cmd = "python tests/test_hypergraph.py"}
 test_contradoc = { cmd = "python tests/test_contradoc.py" }
 rag_no_retrival = { cmd = "python src/hyper_simulation/question_answer/rag_no_retrival.py" }
 hyper_simulation = { cmd = "python src/hyper_simulation/question_answer/rag_no_retrival.py --method hyper_simulation --output_path /home/vincent/hyper-simulation/data/hyper_simulation" }
+HotpotQA = {cmd = "python src/hyper_simulation/question_answer/rag_no_retrival.py --data_path /home/vincent/.dataset/HotpotQA/sample1000 --task hotpotqa"}
+Musique = {cmd = "python src/hyper_simulation/question_answer/rag_no_retrival.py --data_path /home/vincent/.dataset/musique/sample3000 --task musique"}
+MultiHop = {cmd = "python src/hyper_simulation/question_answer/rag_no_retrival.py --data_path /home/vincent/.dataset/MultiHop/sample2500 --task multihop"}
+ARC = {cmd = "python src/hyper_simulation/question_answer/rag_no_retrival.py --data_path /home/vincent/.dataset/ARC/sample_ARC --task ARC"}
+LegalBench = {cmd = "python src/hyper_simulation/question_answer/rag_no_retrival.py --data_path /home/vincent/.dataset/LegalBench/sample500 --task legalbench"}
+# pixi run -e simulation HotpotQA --output_path data/baseline/vanilla --method vanilla
 # LD_LIBRARY_PATH="/home/vincent/hyper-simulation/.pixi/envs/simulation/lib" \
 # pixi run -e simulation hyper_simulation --data_path /home/vincent/.dataset/musique/sample50 --task musique
 # LD_LIBRARY_PATH="/home/vincent/hyper-simulation/.pixi/envs/simulation/lib" \
-# pixi run -e simulation hyper_simulation --data_path /home/vincent/.dataset/HotpotQA/sample20distractor --task hotpotqa
-# pixi run -e simulation rag_no_retrival --data_path /home/vincent/.dataset/HotpotQA/sample20distractor --output_path data/baseline/contradoc --method contradoc --task hotpotqa
+# pixi run -e simulation hyper_simulation --data_path /home/vincent/.dataset/HotpotQA/sample1000 --task hotpotqa
 # pixi run -e simulation rag_no_retrival --data_path /home/vincent/.dataset/musique/sample50 --output_path data/baseline/contradoc/ --method contradoc --task musique
 test_nli = { cmd = "python tests/tools/nli.py" }
+wordnet = { cmd = "python tests/tools/wordnet_show.py" }
+linking = { cmd = "python src/hyper_simulation/hypergraph/linking.py" }
 
 [environments]
 hypergraph = { features = ["hypergraph"] }

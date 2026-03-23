@@ -17,7 +17,8 @@ class QueryInstance:
     denial_logs: Union[List[str], None] = None
     semantic_cluster_logs: Union[List[str], None] = None
     d_match_logs: Union[List[str], None] = None
-    
+    context_type: str = None
+
     def add_simulation_log(self, log: str, data_id: int) -> None:
         if self.simulation_logs is None:
             self.simulation_logs = []

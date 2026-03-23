@@ -32,6 +32,16 @@ def get_level_order(doc: Doc, reversed=False) -> list[Token]:
 def _restrict_correfs(clusters: list[list[tuple[int, int]]], level: int=0) -> list[list[tuple[int, int]]]:
     restricted = []
     for cluster in clusters:
+        # ✅ 修复 1: 跳过 None 的 cluster
+        if cluster is None:
+            continue
+        
+        # ✅ 修复 2: 过滤掉 cluster 中的 None span
+        cluster = [span for span in cluster if span is not None and isinstance(span, (list, tuple)) and len(span) == 2]
+        
+        if not cluster:  # 过滤后为空的 cluster 也跳过
+            continue
+        
         # Level 0: Do not restrict
         # Level 1: All spans in a cluster can not be sub of another span in the same cluster
         # Level 2: All spans in a cluster can not have intersection with another span in the same cluster
@@ -70,35 +80,55 @@ def calc_correfs_str(doc: Doc) -> set[str]:
     clusters = getattr(doc._, "coref_clusters", None)
     if not clusters:
         return correfs
+    
+    # ✅ 修复：过滤掉 None 的 cluster
+    clusters = [c for c in clusters if c is not None]
+    if not clusters:
+        return correfs
+    
     text = doc.text
     clusters = _restrict_correfs(clusters, level=1)
     for cluster in clusters:
         for (start, end) in cluster:
+            # ✅ 防御性：跳过无效的 span
+            if start is None or end is None or start < 0 or end > len(text):
+                continue
             correfs.add(text[start:end])
     correfs.update(_build_coref_span_map(doc).values())
     return correfs
-
 
 def _build_coref_span_map(doc: Doc) -> dict[tuple[int, int], str]:
     span_map: dict[tuple[int, int], str] = {}
     clusters = getattr(doc._, "coref_clusters", None)
     if not clusters:
         return span_map
+    
+    # ✅ 修复：过滤掉 None 的 cluster
+    clusters = [c for c in clusters if c is not None]
+    if not clusters:
+        return span_map
+    
     clusters = _restrict_correfs(clusters, level=1)
     for cluster in clusters:
         if not cluster:
+            continue
+        # ✅ 防御性：检查 cluster[0] 是否有效
+        if len(cluster) == 0 or cluster[0] is None or len(cluster[0]) != 2:
             continue
         canonical_span = doc.char_span(*cluster[0], alignment_mode="expand")
         if canonical_span is None:
             continue
         canonical_text = canonical_span.text
         for start_char, end_char in cluster:
+            # ✅ 防御性：跳过无效的 span
+            if start_char is None or end_char is None:
+                continue
             span = doc.char_span(start_char, end_char, alignment_mode="expand")
             if span is None:
                 continue
             span_map[(span.start, span.end)] = canonical_text
     return span_map
-
+    
 def _calc_same_tokens(doc: Doc, correfs: set[str]) -> dict[str, list[tuple[int, int]]]:
     token_map: dict[str, set[tuple[int, int]]] = {}
     resolved_span_map = _build_coref_span_map(doc)
@@ -373,9 +403,11 @@ def combine(doc: Doc, correfs: set[str]=set(), is_query: bool = False, corefs_cl
                         span_start = left.i
                     else:
                         break
-                elif left.dep_ in {"advmod", "neg", "nummod", "quantmod", "npadvmod", "compound"} or (left.dep_ == "det" and left.text.lower() not in not_naive_dets):
-                    if is_query and left.dep_ == "det" and left.text.lower() in wh_dets:
-                        break
+                # WARN: we remove the combine of `det` 
+                # elif left.dep_ in {"advmod", "neg", "nummod", "quantmod", "npadvmod", "compound"} or (left.dep_ == "det" and left.text.lower() not in not_naive_dets):
+                elif left.dep_ in {"advmod", "neg", "nummod", "quantmod", "npadvmod", "compound"}:
+                    # if is_query and left.dep_ == "det" and left.text.lower() in wh_dets:
+                    #     break
                     span_start = left.i
                 else:
                     break

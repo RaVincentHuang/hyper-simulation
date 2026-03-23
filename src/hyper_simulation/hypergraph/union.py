@@ -4,7 +4,7 @@ import itertools
 from collections import defaultdict
 
 from hyper_simulation.hypergraph.hypergraph import Hypergraph, Vertex, Hyperedge
-from hyper_simulation.hypergraph.dependency import Node, Pos, Entity
+from hyper_simulation.hypergraph.linguistic import QueryType, Pos, Tag, Dep, Entity
 from hyper_simulation.component.nli import get_nli_labels_batch
 from hyper_simulation.component.hyper_simulation import compute_hyper_simulation
 from hyper_simulation.utils.log import getLogger

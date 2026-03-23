@@ -1,205 +1,364 @@
-import itertools
-import re
-from hyper_simulation.component.embedding import get_similarity_batch
-from hyper_simulation.component.nli import get_nli_entailment_score_batch
-import requests
+import json
+from pathlib import Path
 import concurrent.futures
-from collections import defaultdict
+import threading
+import importlib
+from typing import Any
 
-# ==========================================
-# 模拟相似度接口 (实际请接入你的 BERT/Embedding 模型)
-# ==========================================
-class WikidataTagger: # RDF (src, rel, dst)
-    def __init__(self, max_workers=10):
-        self.headers = {'User-Agent': 'Bot/1.0 (Contact: your_email@example.com)'}
+import requests
+
+from hyper_simulation.component.nli import get_nli_entailment_score_batch
+from hyper_simulation.hypergraph.entity import ENT
+from hyper_simulation.llm.chat_completion import get_generate
+
+
+class WikidataTagger:
+    """Disambiguate entity -> fetch P31/P279 labels -> align labels to ENT with cache."""
+
+    def __init__(
+        self,
+        max_workers: int = 10,
+        llm_model: str = "qwen3.5:9b",
+        cache_file: str | None = None,
+    ):
+        self.headers = {"User-Agent": "Bot/1.0 (Contact: huangzixiaopaz@nudt.edu.cn)"}
         self.wd_api = "https://www.wikidata.org/w/api.php"
         self.max_workers = max_workers
+        self.llm_model = llm_model
+        self._llm: Any = None
+        self._cache_lock = threading.Lock()
 
-        # =========================================================
-        # 配置：Wikidata 属性映射
-        # 只保留 Wikidata 的 P-Code
-        # =========================================================
+        if cache_file is None:
+            repo_root = Path(__file__).resolve().parents[3]
+            cache_file = str(repo_root / "data" / "relation" / "wikidata_label_ent_cache.json")
+        self.cache_path = Path(cache_file)
+        self.label_ent_cache = self._load_cache()
+
         self.LABEL_MAP = {
-            'P31':   'WD:InstanceOf',       # 是...的实例
-            'P279':  'WD:SubclassOf',       # 是...的子类
-            'P366':  'WD:HasUse',           # 用途
-            'P101':  'WD:FieldOfWork',     # 所属领域
-            'P361':  'WD:PartOf',           # 是...的一部分
-            'P527':  'WD:HasPart',          # 包含...
-            'P131':  'WD:LocatedIn',        # 位于
-            'P495':  'WD:CountryOfOrigin', # 原产地
-            'P1552': 'WD:HasQuality',       # 具有特征 (Has quality)
-            'P1056': 'WD:Characteristic'     # 产品特性 (Product characteristic)
+            "P31": "WD:InstanceOf",
+            "P279": "WD:SubclassOf",
         }
 
+        self.ent_candidates = [
+            "LOC",
+            "ORG",
+            "FAC",
+            "GPE",
+            "NORP",
+            "PRODUCT",
+            "WORK_OF_ART",
+            "LAW",
+            "LANGUAGE",
+            "OCCUPATION",
+            "EVENT",
+            "TEMPORAL",
+            "NUMBER",
+            "CONCEPT",
+            "ORGANISM",
+            "FOOD",
+            "MEDICAL",
+            "ANATOMY",
+            "SUBSTANCE",
+            "ASTRO",
+            "AWARD",
+            "VEHICLE",
+            "NOT_ENT",
+        ]
+
     def batch_process(self, pairs: list[tuple[str, str]]) -> list[dict[str, str]]:
-        """
-        处理一批 (Term, Context) 对。
-        返回列表长度与输入一致，每个结果独立消歧。
-        """
-        # 初始化结果容器
-        temp_results = [defaultdict(list) for _ in range(len(pairs))]
-        
-        # 提取 Unique Term 减少搜索请求
-        unique_terms = list(set(t for t, s in pairs))
-        
-        # ---------------------------------------------------------
-        # Phase 1: 并发获取 Wikidata 候选 (Candidate Search)
-        # ---------------------------------------------------------
-        print(f"Phase 1: Searching candidates for {len(unique_terms)} unique terms...")
-        wd_candidates_map = {} 
-        
+        """Process [(text, context)] and return per-item Wikidata labels plus aligned ENT."""
+        if not pairs:
+            return []
+
+        results: list[dict[str, str]] = [{} for _ in pairs]
+        unique_terms = sorted({text.strip() for text, _ in pairs if text and text.strip()})
+
+        term_to_candidates: dict[str, list[dict[str, str]]] = {}
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            future_wd = {executor.submit(self._search_candidates, t): t for t in unique_terms}
-            for future in concurrent.futures.as_completed(future_wd):
-                wd_candidates_map[future_wd[future]] = future.result()
+            future_map = {executor.submit(self._search_candidates, term): term for term in unique_terms}
+            for future in concurrent.futures.as_completed(future_map):
+                term = future_map[future]
+                term_to_candidates[term] = future.result()
 
-        # ---------------------------------------------------------
-        # Phase 2: 批量消歧 (Batch Disambiguation)
-        # ---------------------------------------------------------
-        print("Phase 2: Running batch disambiguation...")
-        
-        batch_queries = []
-        batch_data = []
-        batch_mapping = [] # (index, candidate_object)
+        best_qids: dict[int, str] = {}
+        for idx, (text, context) in enumerate(pairs):
+            term = text.strip()
+            cands = term_to_candidates.get(term, [])
+            best = self._disambiguate_candidate(term, context, cands)
+            if best:
+                best_qids[idx] = best["id"]
 
-        for i, (term, context) in enumerate(pairs):
-            cands = wd_candidates_map.get(term, [])
-            for cand in cands:
-                # Query: 上下文
-                # Data: 实体的 Label + Description
-                batch_queries.append(context)
-                batch_data.append(f"{cand['label']} {cand['desc']}")
-                batch_mapping.append((i, cand))
-        
-        # 如果没有候选，直接返回空结果
-        if not batch_queries:
-            return self._format_output(temp_results)
-            
-        scores = get_nli_entailment_score_batch(list(zip(batch_queries, batch_data)))
-                
-        # 解析分数：找到每个 index 对应的最佳 QID
-        index_best_match = {} # { input_index: (max_score, qid) }
-        
-        for score, (original_index, cand) in zip(scores, batch_mapping):
-            print(f"Debug: Index {original_index}, Candidate '{cand['label']}', Score: {score:.4f}")
-            if original_index not in index_best_match or score > index_best_match[original_index][0]:
-                index_best_match[original_index] = (score, cand['id'])
-
-        # ---------------------------------------------------------
-        # Phase 3: 获取详细属性 (Deep Fetch)
-        # ---------------------------------------------------------
-        print("Phase 3: Fetching deep details...")
-        
-        # 收集需要查询的 Unique QID
-        needed_qids = list(set(qid for _, qid in index_best_match.values()))
-        qid_details_map = {} 
-
+        qid_to_details: dict[str, dict[str, list[str]]] = {}
+        needed_qids = sorted(set(best_qids.values()))
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            future_to_qid = {executor.submit(self._fetch_details, qid): qid for qid in needed_qids}
-            for future in concurrent.futures.as_completed(future_to_qid):
-                qid = future_to_qid[future]
-                qid_details_map[qid] = future.result()
+            future_map = {executor.submit(self._fetch_p31_p279_labels, qid): qid for qid in needed_qids}
+            for future in concurrent.futures.as_completed(future_map):
+                qid = future_map[future]
+                qid_to_details[qid] = future.result()
 
-        # 回填数据到对应的 input index
-        for i in range(len(pairs)):
-            if i in index_best_match:
-                best_qid = index_best_match[i][1]
-                details = qid_details_map.get(best_qid, {})
-                for k, v in details.items():
-                    temp_results[i][k].extend(v)
+        all_labels: set[str] = set()
+        for details in qid_to_details.values():
+            for labels in details.values():
+                all_labels.update(labels)
+        self._ensure_labels_classified(all_labels)
 
-        return self._format_output(temp_results)
+        for idx, qid in best_qids.items():
+            details = qid_to_details.get(qid, {})
+            p31_labels = details.get("WD:InstanceOf", [])
+            p279_labels = details.get("WD:SubclassOf", [])
 
-    def _format_output(self, temp_results):
-        """格式化输出：去重并用分号连接"""
-        final_output = []
-        for res in temp_results:
-            flat_dict = {}
-            for k, v_list in res.items():
-                unique_vals = sorted(list(set(v_list)))
-                if unique_vals:
-                    flat_dict[k] = "; ".join(unique_vals)
-            final_output.append(flat_dict)
-        return final_output
+            chosen_ent, chosen_src = self._choose_ent_by_priority(p31_labels, p279_labels)
+            row: dict[str, str] = {
+                "WD:QID": qid,
+                "WD:ENT": chosen_ent,
+                "WD:ENT_SOURCE": chosen_src,
+            }
+            if p31_labels:
+                row["WD:InstanceOf"] = "; ".join(p31_labels)
+            if p279_labels:
+                row["WD:SubclassOf"] = "; ".join(p279_labels)
+            results[idx] = row
 
-    # ==========================================
-    # 内部 Wikidata IO 方法
-    # ==========================================
-    def _search_candidates(self, term):
-        """根据词语搜索 Wikidata 实体候选"""
-        params = {"action": "wbsearchentities", "format": "json", "language": "en", "search": term, "limit": 5}
+        return results
+
+    def _load_cache(self) -> dict[str, str]:
+        if not self.cache_path.exists():
+            return {}
         try:
-            res = requests.get(self.wd_api, params=params, headers=self.headers).json()
-            return [{"id": x["id"], "label": x.get("label", ""), "desc": x.get("description", "")} for x in res.get("search", [])]
-        except: return []
+            with self.cache_path.open("r", encoding="utf-8") as f:
+                raw = json.load(f)
+            if not isinstance(raw, dict):
+                return {}
+            cache: dict[str, str] = {}
+            for k, v in raw.items():
+                if isinstance(k, str) and isinstance(v, str):
+                    cache[k] = v if v in self.ent_candidates else "NOT_ENT"
+            return cache
+        except Exception:
+            return {}
 
-    def _fetch_details(self, qid):
-        """根据 QID 获取详细的 Claims，并映射为 Label"""
-        result = defaultdict(list)
-        params = {"action": "wbgetentities", "ids": qid, "format": "json", "languages": "en", "props": "claims"}
+    def _save_cache(self) -> None:
+        self.cache_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.cache_path.with_suffix(self.cache_path.suffix + ".tmp")
+        with tmp.open("w", encoding="utf-8") as f:
+            json.dump(self.label_ent_cache, f, ensure_ascii=False, indent=2)
+        tmp.replace(self.cache_path)
+
+    def _ensure_llm(self):
+        if self._llm is None:
+            module = importlib.import_module("langchain_ollama")
+            ChatOllama = getattr(module, "ChatOllama")
+            self._llm = ChatOllama(model=self.llm_model, top_p=0.95, reasoning=False)
+        return self._llm
+
+    def _search_candidates(self, term: str) -> list[dict[str, str]]:
+        if not term:
+            return []
+        params = {
+            "action": "wbsearchentities",
+            "format": "json",
+            "language": "en",
+            "search": term,
+            "limit": 5,
+        }
         try:
-            data = requests.get(self.wd_api, params=params, headers=self.headers).json()
-            claims = data.get('entities', {}).get(qid, {}).get('claims', {})
-            
-            target_ids = []
-            id_context = [] # (val_qid, output_key)
-            
-            # 遍历配置表
-            for pid, output_key in self.LABEL_MAP.items():
-                if pid in claims:
-                    for stmt in claims[pid]:
-                        # 确保是实体链接 (wikibase-item)
-                        if stmt.get('mainsnak', {}).get('datatype') == 'wikibase-item':
-                            try:
-                                val_qid = stmt['mainsnak']['datavalue']['value']['id']
-                                target_ids.append(val_qid)
-                                id_context.append((val_qid, output_key))
-                            except: continue
-            
-            # 批量转 Label
-            if target_ids:
-                label_map = self._ids_to_labels(target_ids)
-                for t_qid, key in id_context:
-                    if t_qid in label_map:
-                        result[key].append(label_map[t_qid])
-        except: pass
+            res = requests.get(self.wd_api, params=params, headers=self.headers, timeout=10)
+            data = res.json()
+            return [
+                {
+                    "id": x.get("id", ""),
+                    "label": x.get("label", ""),
+                    "desc": x.get("description", ""),
+                }
+                for x in data.get("search", [])
+                if x.get("id")
+            ]
+        except Exception:
+            return []
+
+    def _disambiguate_candidate(
+        self,
+        term: str,
+        context: str,
+        candidates: list[dict[str, str]],
+    ) -> dict[str, str] | None:
+        if not candidates:
+            return None
+
+        clean_context = (context or "").strip()
+        if not clean_context:
+            return candidates[0]
+
+        pairs = []
+        for cand in candidates:
+            cand_text = f"{cand.get('label', '')}. {cand.get('desc', '')}".strip()
+            pairs.append((clean_context, cand_text))
+
+        try:
+            scores = get_nli_entailment_score_batch(pairs)
+        except Exception:
+            return candidates[0]
+
+        if not scores or len(scores) != len(candidates):
+            return candidates[0]
+
+        best_idx = max(range(len(scores)), key=lambda i: scores[i])
+        return candidates[best_idx]
+
+    def _fetch_p31_p279_labels(self, qid: str) -> dict[str, list[str]]:
+        result = {
+            "WD:InstanceOf": [],
+            "WD:SubclassOf": [],
+        }
+        params = {
+            "action": "wbgetentities",
+            "ids": qid,
+            "format": "json",
+            "languages": "en",
+            "props": "claims",
+        }
+        try:
+            data = requests.get(self.wd_api, params=params, headers=self.headers, timeout=10).json()
+            claims = data.get("entities", {}).get(qid, {}).get("claims", {})
+        except Exception:
+            return result
+
+        target_ids: list[str] = []
+        typed_links: list[tuple[str, str]] = []
+        for pid, output_key in self.LABEL_MAP.items():
+            for stmt in claims.get(pid, []):
+                mainsnak = stmt.get("mainsnak", {})
+                if mainsnak.get("datatype") != "wikibase-item":
+                    continue
+                try:
+                    val_qid = mainsnak["datavalue"]["value"]["id"]
+                except Exception:
+                    continue
+                target_ids.append(val_qid)
+                typed_links.append((val_qid, output_key))
+
+        if not target_ids:
+            return result
+
+        label_map = self._ids_to_labels(target_ids)
+        for target_qid, output_key in typed_links:
+            label = label_map.get(target_qid)
+            if label:
+                result[output_key].append(label)
+
+        for key in result:
+            result[key] = sorted(set(result[key]))
         return result
 
-    def _ids_to_labels(self, qids):
-        """批量将 QID 转为英文 Label"""
-        unique_ids = list(set(qids))
-        label_map = {}
-        # 分块处理，每块 50 个
+    def _ids_to_labels(self, qids: list[str]) -> dict[str, str]:
+        unique_ids = sorted(set(qids))
+        label_map: dict[str, str] = {}
         for i in range(0, len(unique_ids), 50):
-            chunk = unique_ids[i:i+50]
-            params = {"action": "wbgetentities", "ids": "|".join(chunk), "format": "json", "props": "labels", "languages": "en"}
+            chunk = unique_ids[i : i + 50]
+            params = {
+                "action": "wbgetentities",
+                "ids": "|".join(chunk),
+                "format": "json",
+                "props": "labels",
+                "languages": "en",
+            }
             try:
-                res = requests.get(self.wd_api, params=params, headers=self.headers).json()
-                for qid, ent in res.get('entities', {}).items():
-                    lbl = ent.get('labels', {}).get('en', {}).get('value')
-                    if lbl: label_map[qid] = lbl
-            except: pass
+                res = requests.get(self.wd_api, params=params, headers=self.headers, timeout=10).json()
+                for qid, ent in res.get("entities", {}).items():
+                    label = ent.get("labels", {}).get("en", {}).get("value")
+                    if label:
+                        label_map[qid] = label
+            except Exception:
+                continue
         return label_map
 
-# ==========================================
-# 运行演示
-# ==========================================
+    def _ensure_labels_classified(self, labels: set[str]) -> None:
+        unknown_labels = [label for label in sorted(labels) if label not in self.label_ent_cache]
+        if not unknown_labels:
+            return
+
+        llm = self._ensure_llm()
+        prompts = [self._build_label_classification_prompt(label) for label in unknown_labels]
+
+        try:
+            responses = get_generate(prompts, llm)
+        except Exception:
+            responses = []
+
+        with self._cache_lock:
+            for label, response in zip(unknown_labels, responses):
+                self.label_ent_cache[label] = self._extract_ent_label(response)
+
+            for label in unknown_labels[len(responses) :]:
+                self.label_ent_cache[label] = "NOT_ENT"
+
+            self._save_cache()
+
+    def _choose_ent_by_priority(self, p31_labels: list[str], p279_labels: list[str]) -> tuple[str, str]:
+        for label in p31_labels:
+            ent = self.label_ent_cache.get(label, "NOT_ENT")
+            if ent != "NOT_ENT":
+                return ent, "P31"
+
+        for label in p279_labels:
+            ent = self.label_ent_cache.get(label, "NOT_ENT")
+            if ent != "NOT_ENT":
+                return ent, "P279"
+
+        return "NOT_ENT", "NONE"
+
+    def _build_label_classification_prompt(self, label: str) -> str:
+        return (
+            "You are an ontology classifier. Classify the following Wikidata type label into EXACTLY ONE ENT tag.\n"
+            "Allowed ENT tags:\n"
+            "LOC: Geographical location, natural region, body of water.\n"
+            "ORG: Organization, institution, company, government body.\n"
+            "FAC: Physical building, facility, structure.\n"
+            "GPE: Geopolitical entity, such as cities, states, provinces (but not countries).\n"
+            "NORP: Nationalities, religious or political groups.\n"
+            "PRODUCT: Physical object, vehicle, device, manufactured good.\n"
+            "WORK_OF_ART: Piece of art, publication, show.\n"
+            "LAW: Legal document, binding agreement.\n"
+            "LANGUAGE: Spoken or written human language.\n"
+            "OCCUPATION: Job, profession, trade.\n"
+            "EVENT: Phenomenon, historical event, sports match.\n"
+            "TEMPORAL: Time period, specific date, unit of time.\n"
+            "NUMBER: Mathematical number, quantity.\n"
+            "CONCEPT: Abstract idea, theoretical concept.\n"
+            "ORGANISM: Living being, such as animal, plant, or microorganism.\n"
+            "FOOD: Edible substance, dish, or cuisine.\n"
+            "MEDICAL: Medical condition, disease, symptom, or treatment.\n"
+            "ANATOMY: Body part, organ, or anatomical structure.\n"
+            "SUBSTANCE: Chemical element, compound, or material.\n"
+            "ASTRO: Astronomical object, such as a star, planet, or galaxy.\n"
+            "AWARD: Prize, honor, or recognition given to a person or organization.\n"
+            "VEHICLE: Means of transportation, such as a car, airplane, or bicycle.\n"
+            "NOT_ENT: Use this if the label does not fit any category above.\n\n"
+            f"Wikidata label: {label}\n"
+            "Output only one tag from the allowed list."
+        )
+
+    def _extract_ent_label(self, response_text: str) -> str:
+        text = (response_text or "").strip().upper()
+        for label in self.ent_candidates:
+            if label in text:
+                return label
+        return "NOT_ENT"
+
+    def get_entity_for_text(self, text: str, context: str) -> ENT:
+        rows = self.batch_process([(text, context)])
+        if not rows:
+            return ENT.NOT_ENT
+        return ENT.from_str(rows[0].get("WD:ENT", "NOT_ENT"))
+
+
 if __name__ == "__main__":
     tagger = WikidataTagger()
-    
-    # 示例包含需要用到 MadeOf, ReceivesAction, Has quality 的场景
-    batch_input = [
-        ("Wooden table", "I bought a sturdy wooden table for the kitchen."), # 测试 MadeOf, Furniture
-        ("Apple", "The apple was red and delicious."), # 测试 HasProperty, IsA
-        ("Apple", "Apple released a new phone."), # 测试 Company, FieldOfWork
-        ("Cake", "The cake was eaten by the children."), # 测试 ReceivesAction,
-        ("yellow", "The bright yellow sun shone in the sky."), # 测试 SimilarTo, Color
+    samples = [
+        ("Apple", "Apple released a new phone."),
+        ("Apple", "The apple was red and delicious."),
+        ("Nobel Prize", "Marie Curie won the Nobel Prize."),
     ]
-    
-    results = tagger.batch_process(batch_input)
-    
-    for (term, context), res in zip(batch_input, results):
-        print(f"\nTerm: '{term}' | Context: '{context}'")
-        for k, v in res.items():
-            print(f"  {k}: {v}")
+    for text, context in samples:
+        ent = tagger.get_entity_for_text(text, context)
+        print(f"Text: '{text}' | Context: '{context}' → ENT: {ent.name}")

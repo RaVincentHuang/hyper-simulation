@@ -2,7 +2,7 @@ import itertools
 import time
 from typing import Dict, List, Set, Tuple, Optional
 from hyper_simulation.hypergraph.hypergraph import Hyperedge, Hypergraph, Node, Vertex, LocalDoc
-from hyper_simulation.hypergraph.dependency import Pos, Dep, Entity
+from hyper_simulation.hypergraph.linguistic import QueryType, Pos, Tag, Dep, Entity
 import numpy as np
 import logging
 from hyper_simulation.component.embedding import get_embedding_batch, get_cosine_similarity_batch, get_similarity_batch, get_similarity

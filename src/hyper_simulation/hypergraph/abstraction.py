@@ -1,8 +1,12 @@
+import json
+
 import spacy
 from nltk.corpus import wordnet as wn
 from pywsd.lesk import simple_lesk
-from spacy.tokens import Token
-
+from spacy.tokens import Token, Span
+from hyper_simulation.hypergraph.entity import ENT
+from hyper_simulation.hypergraph.linguistic import Entity
+from typing import Iterable
 # from hyper_simulation.hypergraph.dependency import LocalDoc
 
 
@@ -323,6 +327,180 @@ class TokenAbstractor:
         
         # 5. 转换为字符串列表
         return [node.name() for node in raw_path]
+
+class TokenEntityAdder:
+    def __init__(self, path: str):
+        self.char_index_to_entity: dict[int, ENT] = {}
+        self.mapping = {}
+        # Path is a .json file mapping like "populism.n.01": "NORP"
+        with open(path, "r", encoding="utf-8") as f:
+            self.mapping = json.load(f)
+    
+    def _spacy_to_wn_pos(self, spacy_pos):
+        """将 SpaCy POS 转换为 WordNet POS"""
+        if spacy_pos in ['NOUN', 'PROPN']: return wn.NOUN
+        if spacy_pos == 'VERB': return wn.VERB
+        if spacy_pos == 'ADJ': return wn.ADJ
+        if spacy_pos == 'ADV': return wn.ADV
+        return None
+    
+    
+    def _get_contextual_synset_path_span(self, span: Span, doc) -> list[str]:
+        """
+        对 Span 进行词义消歧，返回从词语到根的上位词路径 (list of synset names)。
+        
+        Args:
+            span: spaCy Span 对象
+            doc: spaCy Doc 对象
+        
+        Returns:
+            list[str]: Synset 名称序列，如 ['entity.n.01', ..., 'word.n.01']
+        """
+        # 1. 映射 POS
+        wn_pos = self._spacy_to_wn_pos(span.root.pos_)
+        if not wn_pos:
+            return []
+
+        # 2. 使用 PyWSD 进行上下文消歧
+        try:
+            synset = simple_lesk(doc.text, span.text, pos=wn_pos)
+        except Exception:
+            synset = None
+
+        # 3. 兜底到 MFS (Most Frequent Sense)
+        if not synset:
+            synsets = wn.synsets(span.text.lower().strip(), pos=wn_pos)
+            if synsets:
+                synset = synsets[0]
+        
+        # 4. 如果无法识别，返回空路径
+        if not synset:
+            return []
+
+        # 5. 获取上位词路径
+        paths = synset.hypernym_paths()
+        
+        if not paths:
+            # 如果没有路径（如形容词/副词或根节点），返回 synset 本身
+            return [synset.name()]
+
+        # 6. 转换为字符串列表
+        return [node.name() for node in paths[0]]
+    
+    def _get_contextual_synset_path_token(self, token: Token, doc) -> list[str]:
+        """
+        对单个 Token 进行词义消歧，返回从词语到根的上位词路径 (list of synset names)。
+        
+        Args:
+            token: spaCy Token 对象
+            doc: spaCy Doc 对象
+        
+        Returns:
+            list[str]: Synset 名称序列，如 ['entity.n.01', ..., 'word.n.01']
+        """
+        # 1. 映射 POS
+        wn_pos = self._spacy_to_wn_pos(token.pos_)
+        if not wn_pos:
+            return []
+
+        # 2. 使用 PyWSD 进行上下文消歧
+        try:
+            synset = simple_lesk(doc.text, token.text, pos=wn_pos)
+        except Exception:
+            synset = None
+
+        # 3. 兜底到 MFS (Most Frequent Sense)
+        if not synset:
+            synsets = wn.synsets(token.lemma_, pos=wn_pos)
+            if synsets:
+                synset = synsets[0]
+        
+        # 4. 如果无法识别，返回空路径
+        if not synset:
+            return []
+
+        # 5. 获取上位词路径
+        paths = synset.hypernym_paths()
+        
+        if not paths:
+            # 如果没有路径（如形容词/副词或根节点），返回 synset 本身
+            return [synset.name()]
+
+        # 6. 转换为字符串列表
+        return [node.name() for node in paths[0]]
+    
+    def set_entity_from_spans(self, spans: list[Span], doc):
+        for span in spans:
+            # 1. if span.ent_type_ is not empty, use it directly
+            if span.label_:
+                self.char_index_to_entity[span.start_char] = ENT.from_entity(Entity[span.label_])
+                # print(f"Span '{span.text}' (char index {span.start_char}) mapped to entity: {self.char_index_to_entity[span.start_char]} based on NER tag")
+                continue
+            # 2. else, try to use the mapping based on the span text
+            synset = self._get_contextual_synset_path_span(span, doc)
+            is_concept = False
+            loop_end = False
+            for syn in reversed(synset):
+                if syn in self.mapping:
+                    mapped_entity = self.mapping[syn]
+                    if mapped_entity == "CONCEPT":
+                        is_concept = True
+                        continue
+                    elif mapped_entity == "NOT_ENT":
+                        continue
+                    self.char_index_to_entity[span.start_char] = ENT.from_entity(Entity[mapped_entity])
+                    # print(f"Span '{span.text}' (char index {span.start_char}) mapped to entity: {self.char_index_to_entity[span.start_char]} based on contextual synset")
+                    loop_end = True
+                    break
+            if loop_end:
+                continue
+
+            # 3. else, try span.root
+            loop_end = False
+            synset = self._get_contextual_synset_path_token(span.root, doc)
+            for syn in reversed(synset):
+                if syn in self.mapping:
+                    mapped_entity = self.mapping[syn]
+                    if mapped_entity == "CONCEPT":
+                        is_concept = True
+                        continue
+                    elif mapped_entity == "NOT_ENT":
+                        continue
+                    self.char_index_to_entity[span.start_char] = ENT.from_entity(Entity[mapped_entity])
+                    # print(f"Span '{span.text}' (char index {span.start_char}) mapped to entity: {self.char_index_to_entity[span.start_char]} based on root token synset")
+                    loop_end = True
+                    break
+            if loop_end:
+                continue
+            # 4. else, do nothing (remain unmapped)
+            if is_concept:
+                self.char_index_to_entity[span.start_char] = ENT.CONCEPT
+                continue
+            self.char_index_to_entity[span.start_char] = ENT.NOT_ENT
+    
+    def get_entity_for_char_index(self, char_index: int) -> ENT | None:
+        # if char_index in self.char_index_to_entity:
+        #     print(f"char index {char_index}: {self.char_index_to_entity.get(char_index, None)}")
+        return self.char_index_to_entity.get(char_index, None)
+
+    def get_entity_for_token(self, token: Token, doc) -> ENT | None:
+        synset = self._get_contextual_synset_path_token(token, doc)
+        # print(f"entity for token '{token.text}' (char index {token.idx}): synset path={synset}")
+        is_concept = False
+        for syn in reversed(synset):
+            if syn in self.mapping:
+                mapped_entity = self.mapping[syn]
+                if mapped_entity == "CONCEPT":
+                    is_concept = True
+                    continue
+                elif mapped_entity == "NOT_ENT":
+                    return None
+                else:
+                    # print(f"token '{token.text}' (char index {token.idx}) to entity: {mapped_entity}")
+                    return ENT[mapped_entity]
+        if is_concept:
+            return ENT.CONCEPT
+        return None
 
 # ==============================================================================
 # 4. 测试与演示

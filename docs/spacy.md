@@ -172,7 +172,7 @@ for token in doc:
 `​advmod​​` | Adverbial Modifier | 副词修饰动词/形容词 | She ran ​​quickly​​. |
 `​nummod​​` | Numeric Modifier | 数词修饰名词 | ​​three​​ apples |
 `​quantmod​​` | Quantifier Modifier | 数量修饰 | ​​All​​ students passed. |
-`​​npadvmod​​` | Noun Phrase Adverbial Modifier | 名词短语作状语 | She arrived​​this morning​​. |
+`​​npadvmod​​` | Noun Phrase Adverbial Modifier | 名词短语作状语 | She arrived ​​this morning​​. |
 `​neg​​` | Negation Modifier | 否定修饰 | She ​​did not​​ go.(not修饰go) | 
 
 **从句关系**

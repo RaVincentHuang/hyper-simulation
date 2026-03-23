@@ -3,156 +3,158 @@ from thefuzz import process
 
 from hyper_simulation.hypergraph.abstraction import TokenAbstractor
 
-class QueryType(Enum):
-    BELONGS = 1 # whose
-    WHAT = 2 # what / which
-    WHICH = 3 # what / which
-    PERSON = 4 # who
-    ATTRIBUTE = 5 # how *, *: str
-    NUMBER = 6 # how many / how much / how fast
-    TIME = 7 # when
-    LOCATION = 8 # where
-    REASON = 9 # why
+from hyper_simulation.hypergraph.linguistic import QueryType, Pos, Tag, Dep, Entity
+from hyper_simulation.hypergraph.entity import ENT
+# class QueryType(Enum):
+#     BELONGS = 1 # whose
+#     WHAT = 2 # what / which
+#     WHICH = 3 # what / which
+#     PERSON = 4 # who
+#     ATTRIBUTE = 5 # how *, *: str
+#     NUMBER = 6 # how many / how much / how fast
+#     TIME = 7 # when
+#     LOCATION = 8 # where
+#     REASON = 9 # why
 
-class Pos(IntEnum):
-    ADP = 1
-    ADV = 2
-    ADJ = 3
-    AUX = 4
-    CCONJ = 5
-    DET = 6
-    INTJ = 7
-    NOUN = 8
-    NUM = 9
-    PART = 10
-    PRON = 11
-    PROPN = 12
-    PUNCT = 13
-    SCONJ = 14
-    SYM = 15
-    VERB = 16
-    X = 17
-    SPACE = 18
+# class Pos(IntEnum):
+#     ADP = 1
+#     ADV = 2
+#     ADJ = 3
+#     AUX = 4
+#     CCONJ = 5
+#     DET = 6
+#     INTJ = 7
+#     NOUN = 8
+#     NUM = 9
+#     PART = 10
+#     PRON = 11
+#     PROPN = 12
+#     PUNCT = 13
+#     SCONJ = 14
+#     SYM = 15
+#     VERB = 16
+#     X = 17
+#     SPACE = 18
 
-class Tag(IntEnum):
-    CC = 1
-    CD = 2
-    DT = 3
-    EX = 4
-    FW = 5
-    IN = 6
-    JJ = 7
-    JJR = 8
-    JJS = 9
-    MD = 10
-    NN = 11
-    NNS = 12
-    NNP = 13
-    NNPS = 14
-    POS = 15
-    PRP = 16
-    PRPD = 17
-    RB = 18
-    RBR = 19
-    RBS = 20
-    RP = 21
-    TO = 22
-    UH = 23
-    VB = 24
-    VBZ = 25
-    VBP = 26
-    VBD = 27
-    VBN = 28
-    VBG = 29
-    WP = 30
-    WPD = 31
-    WRB = 32
-    _SP = 33
-    HYPH = 34
-    ADD = 35
-    WDT = 36
-    PDT = 37
-    XX = 38
-    NFP = 39
-    SYM = 40
-    LS = 41
+# class Tag(IntEnum):
+#     CC = 1
+#     CD = 2
+#     DT = 3
+#     EX = 4
+#     FW = 5
+#     IN = 6
+#     JJ = 7
+#     JJR = 8
+#     JJS = 9
+#     MD = 10
+#     NN = 11
+#     NNS = 12
+#     NNP = 13
+#     NNPS = 14
+#     POS = 15
+#     PRP = 16
+#     PRPD = 17
+#     RB = 18
+#     RBR = 19
+#     RBS = 20
+#     RP = 21
+#     TO = 22
+#     UH = 23
+#     VB = 24
+#     VBZ = 25
+#     VBP = 26
+#     VBD = 27
+#     VBN = 28
+#     VBG = 29
+#     WP = 30
+#     WPD = 31
+#     WRB = 32
+#     _SP = 33
+#     HYPH = 34
+#     ADD = 35
+#     WDT = 36
+#     PDT = 37
+#     XX = 38
+#     NFP = 39
+#     SYM = 40
+#     LS = 41
     
-    WILDCARD = 99
+#     WILDCARD = 99
 
-class Dep(IntEnum):
-    nsubj = 1
-    nsubjpass = 2
-    csubj = 3
-    csubjpass = 4
-    dobj = 5
-    iobj = 6
-    pobj = 7
-    dative = 8
+# class Dep(IntEnum):
+#     nsubj = 1
+#     nsubjpass = 2
+#     csubj = 3
+#     csubjpass = 4
+#     dobj = 5
+#     iobj = 6
+#     pobj = 7
+#     dative = 8
     
-    amod = 9
-    advmod = 10
-    nummod = 11
-    quantmod = 12
-    npadvmod = 13
-    neg = 14
+#     amod = 9
+#     advmod = 10
+#     nummod = 11
+#     quantmod = 12
+#     npadvmod = 13
+#     neg = 14
     
-    acl = 15
-    advcl = 16
-    ccomp = 17
-    xcomp = 18
-    relcl = 19
-    mark = 20
+#     acl = 15
+#     advcl = 16
+#     ccomp = 17
+#     xcomp = 18
+#     relcl = 19
+#     mark = 20
     
-    prep = 21
-    agent = 22
-    cc = 23
-    conj = 24
-    case = 25
-    prt = 26
+#     prep = 21
+#     agent = 22
+#     cc = 23
+#     conj = 24
+#     case = 25
+#     prt = 26
     
-    appos = 27
-    attr = 28
-    acomp = 29
-    oprd = 30
-    aux = 31
-    auxpass = 32
-    expl = 33
-    parataxis = 34
-    meta = 35
-    det = 36
-    poss = 37
-    predet = 38
-    preconj = 39
-    intj = 40
-    punct = 41
-    dep = 42
+#     appos = 27
+#     attr = 28
+#     acomp = 29
+#     oprd = 30
+#     aux = 31
+#     auxpass = 32
+#     expl = 33
+#     parataxis = 34
+#     meta = 35
+#     det = 36
+#     poss = 37
+#     predet = 38
+#     preconj = 39
+#     intj = 40
+#     punct = 41
+#     dep = 42
     
-    compound = 43
-    pcomp = 44
-    nmod = 45
+#     compound = 43
+#     pcomp = 44
+#     nmod = 45
 
-    ROOT = 46
+#     ROOT = 46
 
-class Entity(Enum):
-    PERSON = 1
-    NORP = 2
-    FAC = 3
-    ORG = 4
-    GPE = 5
-    LOC = 6
-    PRODUCT = 7
-    EVENT = 8
-    WORK_OF_ART = 9
-    LAW = 10
-    LANGUAGE = 11
-    DATE = 12
-    TIME = 13
-    PERCENT = 14
-    MONEY = 15
-    QUANTITY = 16
-    ORDINAL = 17
-    CARDINAL = 18
-    NOT_ENTITY = 99
+# class Entity(Enum):
+#     PERSON = 1
+#     NORP = 2
+#     FAC = 3
+#     ORG = 4
+#     GPE = 5
+#     LOC = 6
+#     PRODUCT = 7
+#     EVENT = 8
+#     WORK_OF_ART = 9
+#     LAW = 10
+#     LANGUAGE = 11
+#     DATE = 12
+#     TIME = 13
+#     PERCENT = 14
+#     MONEY = 15
+#     QUANTITY = 16
+#     ORDINAL = 17
+#     CARDINAL = 18
+#     NOT_ENTITY = 99
 
 dead_dep = {Dep.dative, Dep.prt, Dep.parataxis}
 solved_dep = {Dep.meta, Dep.poss, Dep.det, Dep.predet, Dep.intj}
@@ -241,6 +243,8 @@ class Node:
         self.wn_abstraction: str | None = None  # 抽象类型，如 "AI_Model", "Person"
         self.wn_hypernym_path: list[str] = []   # 上位词路径
         
+        self.entity: ENT | None = None
+        
         # Wikidata 标签信息（在 from_doc 时预计算）
         self.wd_tags: dict[str, str] = {}  # 如 {"WD:InstanceOf": "software", "WD:FieldOfWork": "AI"}
         
@@ -252,8 +256,11 @@ class Node:
         self.sentence_start = start
         self.sentence_end = end
         
+    def set_entity(self, entity: ENT) -> None:
+        self.entity = entity
+        
     @staticmethod
-    def from_doc(doc) -> tuple[list['Node'], list['Node']]:
+    def from_doc(doc, abst) -> tuple[list['Node'], list['Node']]:
         nodes: list[Node] = []
         node_map: dict[int, Node] = {}
         # def _coref_primary_rank(node: 'Node') -> tuple[int, int, int, int]:
@@ -275,7 +282,7 @@ class Node:
         #     pos_score = pos_priority.get(node.pos, 1)  # Default priority for other POS
         #     length_score = len(node.text)
         #     return (ent_score, pos_score, length_score, -node.index)
-        wildcard_tags = {',', '.', '-LRB-', '-RRB-', '``', ':', "''", 'PRP$', 'WP$', '$'}
+        wildcard_tags = {',', '.', '-LRB-', '-RRB-', '``', ':', "''", 'PRP$', 'WP$', '$', 'AFX'}
         for token in doc:
             # print(f"Token: '{token.text}', Lemma: '{token.lemma_}', Dep: {token.dep_} ['{token.head.text}'], Ent: {token.ent_type_}, POS: {token.pos_}, TAG: {token.tag_}")
             pos = token.pos_
@@ -295,6 +302,15 @@ class Node:
                 lemma=token.lemma_,
                 index=token.i,
             )
+            
+            entity_by_span: ENT | None = abst.get_entity_for_char_index(token.idx)
+            if entity_by_span:
+                node.set_entity(entity_by_span)
+            else:
+                entity_by_token: ENT | None = abst.get_entity_for_token(token, doc)
+                if entity_by_token:
+                    node.set_entity(entity_by_token)
+
             node.set_sentence(sentence, token.left_edge.i, token.right_edge.i + 1)
             # print(f"Set sentence for Node '{node.text}' :> {token.left_edge.text} ({node.sentence_start}), {token.right_edge.text} ({node.sentence_end}): \n\t'{node.sentence}'")
             node_map[token.i] = node
@@ -474,6 +490,9 @@ class Node:
             node.wn_hypernym_path = abstractor.get_abstraction_path(token, doc)
         
         return nodes, roots
+    
+    def has_entity(self) -> bool:
+        return self.ent != Entity.NOT_ENTITY or (self.entity is not None and self.entity != ENT.NOT_ENT)
     
     def __format__(self, format_spec: str) -> str:
         return f"Node(text='{self.text}', pos={self.pos.name}, tag={self.tag.name}, dep={self.dep.name}, ent={self.ent.name}, sentence='{self.sentence}')"
@@ -950,6 +969,11 @@ class Dependency:
         cnt = 1
         deferred_coref_nodes: list[Node] = []
         for node in self.vertexes:
+            print(f"Node '{node.text}'", end="")
+            if node.coref_primary:
+                print(f" (coref primary: '{node.coref_primary.text}')")
+            else:
+                print()
             if node.coref_primary:
                 deferred_coref_nodes.append(node)
                 continue

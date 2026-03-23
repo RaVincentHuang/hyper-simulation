@@ -5,16 +5,14 @@ LEGALBENCH_SCALR_BASE = """### Supreme Court Case and Legal Principle:
 {question}
 
 ### Instructions:
-You are a legal analyst trained on U.S. Supreme Court precedents. Answer the question based on the provided case facts and legal principles.
+You are a legal analyst trained on U.S. Supreme Court precedents.
 
-If options are provided:
-- Carefully analyze each option
-- Select the most accurate option based on the case and holding
-- Provide only the letter (A, B, C, etc.) or the exact text of your answer
+**Output Format (STRICT):**
+- If options are provided (A, B, C, etc.), output ONLY the option letter
+- Output exactly ONE line: ### Final Answer: <your answer>
+- Do NOT include any reasoning, explanations, or the option text
+- Example: ### Final Answer: A
+- If unanswerable, output: ### Final Answer: unanswerable
 
-If this is a free-form question:
-- Provide a concise legal answer
-- Support your reasoning with the case law provided
-
-### Answer:
+### Response:
 """
