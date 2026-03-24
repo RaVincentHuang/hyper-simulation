@@ -1077,7 +1077,7 @@ def run_rag_evaluation(
                             ground_truths.append((False, ""))
                     query_instance = QueryInstance(
                         query=item['question'],
-                        data=[f"{title}.\n" + "\n".join(sentences) for title, sentences in item['context']],
+                        data=[f"\n".join(sentences) for title, sentences in item['context']],
                         fixed_data=[],
                         answers=item['answer'],
                         ground_truth=ground_truths
@@ -1107,7 +1107,7 @@ def run_rag_evaluation(
                     
                     query_instance = QueryInstance(
                         query=item["question"],
-                        data=[f"{title}.\n" + "\n".join(sentences) for title, sentences in item["context"]],
+                        data=[f"\n".join(sentences) for title, sentences in item["context"]],
                         fixed_data=[],
                         answers=answers,
                         ground_truth=ground_truths,
@@ -1128,7 +1128,7 @@ def run_rag_evaluation(
                     answers = [answer] if answer else []
                     query_instance = QueryInstance(
                         query=item["question"],
-                        data=[f"{title}.\n" + "\n".join(sentences) for title, sentences in item["context"]],
+                        data=[f"\n".join(sentences) for title, sentences in item["context"]],
                         fixed_data=[],
                         answers=answers,
                         ground_truth=ground_truths
@@ -1149,7 +1149,7 @@ def run_rag_evaluation(
                     answers = [answer] if answer else []
                     query_instance = QueryInstance(
                         query=item["question"],
-                        data=[f"{title}.\n" + "\n".join(sentences) for title, sentences in item["context"]],
+                        data=[f"\n".join(sentences) for title, sentences in item["context"]],
                         fixed_data=[],
                         answers=answers,
                         ground_truth=ground_truths,
@@ -1173,7 +1173,7 @@ def run_rag_evaluation(
                     answers = [answer] if answer else []
                     query_instance = QueryInstance(
                         query=item["question"],
-                        data=[f"{title}.\n" + "\n".join(sentences) for title, sentences in item["context"]],
+                        data=[f"\n".join(sentences) for title, sentences in item["context"]],
                         fixed_data=[],
                         answers=answers,
                         ground_truth=ground_truths
