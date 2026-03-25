@@ -191,7 +191,7 @@ def debug_text_to_hypergraph(
 # The first expedition to reach the geographic South Pole was led by the Norwegian explorer Roald Amundsen. He and four others arrived at the pole on 14 December 1911, five weeks ahead of a British party led by Robert Falcon Scott as part of the Terra Nova Expedition. Amundsen and his team returned safely to their base, and later learned that Scott and his four companions had died on their return journey.
 
 if __name__ == "__main__":
-    text = """Scholar Nilsson delivered a keynote at Stockholmsmässan on August. He also participated in roundtable discussions. That day, the venue hosted an AI ethics seminar, which featured his keynote and discussions.
+    text = """Dr. Elara Vance serves as the executive director and lead botanist at the Sylva Research Foundation.
 """
     
     parser = ArgumentParser(description="Debug spaCy dependency pipeline steps.")

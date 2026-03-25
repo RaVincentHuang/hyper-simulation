@@ -123,13 +123,14 @@ def text_to_doc(text: str) -> Doc:
 def doc_to_hypergraph(doc: Doc, text: str, is_query: bool = False) -> LocalHypergraph:
     correfs = calc_correfs_str(doc) if hasattr(doc._, "coref_clusters") else set()
     
+    abstractor = TokenEntityAdder("qwen_ontology_mapping.json")
     links_to_merge = combine_links(doc)
     with doc.retokenize() as retokenizer:
         for link in links_to_merge:
             retokenizer.merge(link)
     corref_clusters = CorrefCluster.from_doc(doc)
     spans_to_merge = combine(doc, correfs, is_query=is_query, corefs_clusters=corref_clusters)
-    abstractor = TokenEntityAdder("qwen_ontology_mapping.json")
+    abstractor.set_entity_from_spans(spans_to_merge, doc)
     with doc.retokenize() as retokenizer:
         for span in spans_to_merge:
             if span.start < span.end:

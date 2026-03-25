@@ -249,7 +249,7 @@ def combine(doc: Doc, correfs: set[str]=set(), is_query: bool = False, corefs_cl
     spans_to_merge: list[Span] = []
     ent_token_idxs: set[int] = set()
     bigram_lr_scores = _calc_bigram_likelihood_scores(doc)
-    lr_threshold = 8.0
+    lr_threshold = 7.5
 
     # Correferences
     # token_map = _calc_same_tokens(doc, correfs)
@@ -398,7 +398,7 @@ def combine(doc: Doc, correfs: set[str]=set(), is_query: bool = False, corefs_cl
                 if left.dep_ == "amod":
                     pair = (left.text.lower(), left.head.text.lower())
                     score = bigram_lr_scores.get(pair, 0.0)
-                    # print(f"Bigram LR score for {pair}: {score} - {score >= lr_threshold}")
+                    print(f"Bigram LR score for {pair}: {score} - {score >= lr_threshold}")
                     if score >= lr_threshold:
                         span_start = left.i
                     else:

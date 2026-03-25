@@ -448,7 +448,7 @@ class TokenEntityAdder:
                         continue
                     elif mapped_entity == "NOT_ENT":
                         continue
-                    self.char_index_to_entity[span.start_char] = ENT.from_entity(Entity[mapped_entity])
+                    self.char_index_to_entity[span.start_char] = ENT[mapped_entity]
                     # print(f"Span '{span.text}' (char index {span.start_char}) mapped to entity: {self.char_index_to_entity[span.start_char]} based on contextual synset")
                     loop_end = True
                     break
@@ -466,7 +466,7 @@ class TokenEntityAdder:
                         continue
                     elif mapped_entity == "NOT_ENT":
                         continue
-                    self.char_index_to_entity[span.start_char] = ENT.from_entity(Entity[mapped_entity])
+                    self.char_index_to_entity[span.start_char] = ENT[mapped_entity]
                     # print(f"Span '{span.text}' (char index {span.start_char}) mapped to entity: {self.char_index_to_entity[span.start_char]} based on root token synset")
                     loop_end = True
                     break
