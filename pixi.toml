@@ -86,7 +86,7 @@ langchain_core = "*"
 dependency = { cmd = "python tests/test_dependency.py"}
 build = { cmd = "python src/hyper_simulation/question_answer/rag_no_retrival.py --method hyper_simulation --build" }
 # pixi run -e hypergraph build --data_path /home/vincent/.dataset/HotpotQA/sample1000 --task hotpotqa
-# pixi run -e hypergraph build --data_path /home/vincent/.dataset/musique/sample2000 --task musique
+# pixi run -e hypergraph build --data_path /home/vincent/.dataset/musique/sample3000 --task musique
 # pixi run -e hypergraph build --data_path /home/vincent/.dataset/MultiHop/sample2500 --task multihop
 # pixi run -e hypergraph build --data_path /home/vincent/.dataset/ARC/sample_ARC --task ARC
 # pixi run -e hypergraph build --data_path /home/vincent/.dataset/LegalBench/sample500 --task LegalBench

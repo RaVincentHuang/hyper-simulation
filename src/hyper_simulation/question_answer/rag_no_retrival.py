@@ -921,7 +921,7 @@ def run_rag_evaluation(
     build: bool = True,
     rebuild: bool = False,
     using_support_only: bool = False,
-    save_interval: int = 500,
+    save_interval: int = 100,
     save_prompts_only: bool = False,
     load_prompts: str = None
 ):
@@ -1040,9 +1040,14 @@ def run_rag_evaluation(
 
     new_results_buffer = [] 
     prompts_buffer = []  # 用于批量保存 prompts
-
+    if load_prompts:
+        pbar_initial = 0
+        pbar_total = len(items_to_process)
+    else:
+        pbar_initial = len(processed_questions)
+        pbar_total = len(data)
     # 进度条初始化：只显示剩余任务数量
-    pbar = tqdm(total=len(items_to_process), desc="Processing", position=0, leave=True, initial=len(processed_questions) if not load_prompts else 0)
+    pbar = tqdm(total=pbar_total, desc=f"Processing {task}_{method}", position=0, leave=True, initial=pbar_initial)
 
     for batch_start in range(0, len(items_to_process), batch_size):
         batch = items_to_process[batch_start:(batch_start + batch_size)]
@@ -1055,7 +1060,6 @@ def run_rag_evaluation(
             filtered_batch.append(item)
         
         if not filtered_batch:
-            pbar.update(len(batch))
             continue
 
         # 🔹 6. 构建 QueryInstance (如果没有加载 prompts)
@@ -1192,7 +1196,7 @@ def run_rag_evaluation(
                 query_instances.append(query_instance)
     
             if not query_instances:
-                pbar.update(len(batch))
+                pbar.update(len(filtered_batch))
                 continue
     
             # Method 处理
@@ -1208,12 +1212,21 @@ def run_rag_evaluation(
             elif method == "sentli":
                 from hyper_simulation.baselines.sentLI import query_fixup
                 fixed_query_instances = [ query_fixup(qi) for qi in query_instances]
+            elif method == "cdit":
+                from hyper_simulation.baselines.CDIT import query_fixup
+                fixed_query_instances = [query_fixup(qi, model=model) for qi in query_instances]
+            elif method == "her":
+                from hyper_simulation.baselines.her import query_fixup
+                fixed_query_instances = [query_fixup(qi, dataset_name=task) for qi in query_instances]
+            elif method == "her":
+                from hyper_simulation.baselines.her import query_fixup
+                fixed_query_instances = [query_fixup(qi, dataset_name=task) for qi in query_instances]
             elif method == "hyper_simulation":
                 if not build:
                     from hyper_simulation.component.build_hypergraph import build_hypergraph_batch
                     build_hypergraph_batch(query_instances, dataset_name=task, force_rebuild=rebuild)
                     print("Hypergraph built. Please re-run with --build to evaluate.")
-                    pbar.update(len(batch))
+                    pbar.update(len(filtered_batch))
                     continue
                 else:
                     from hyper_simulation.component.consistent import query_fixup
@@ -1273,7 +1286,7 @@ def run_rag_evaluation(
                 print(f"💾 已保存 {len(prompts_buffer)} 条 Prompts 到 {prompt_save_path}")
                 prompts_buffer = []
             
-            pbar.update(len(batch))
+            pbar.update(len(filtered_batch))
             continue  # 跳过 LLM 调用
 
         # 🔹 9. LLM 生成
@@ -1288,10 +1301,13 @@ def run_rag_evaluation(
         # 后处理和评估
         for item, pred in zip(fixed_query_instances, predictions):
             processed_pred, parse_status, is_fallback = postprocess_answer(pred)
-            print(processed_pred)
+            # import sys
+            # tqdm.write(f"[{pbar.n}] {processed_pred}", file=sys.stdout)
             metrics = evaluate_answer(processed_pred, item.answers)
-            is_correct = metrics['exact_match'] > 0
             
+            pbar.update(1)  # 补回这行，确保处理过的每个条目都能推动进度条前进
+            
+            is_correct = metrics['exact_match'] > 0
             result = {
                 "question": item.query,
                 "prediction": processed_pred,
@@ -1319,8 +1335,6 @@ def run_rag_evaluation(
             # 累积指标
             for metric_name, score in metrics.items():
                 all_metrics[metric_name].append(score)
-        
-        pbar.update(len(batch))
         
         # 🔹 10. 检查是否需要增量保存结果
         if len(new_results_buffer) >= save_interval:
@@ -1441,8 +1455,8 @@ def main():
         '--method',
         type=str,
         default='vanilla',
-        choices=['vanilla', 'contradoc', 'sparsecl', 'sentli', 'hyper_simulation'],
-        help='Method to use: vanilla or contradoc'
+        choices=['vanilla', 'contradoc', 'sparsecl', 'sentli', 'cdit', 'hyper_simulation', 'her'],
+        help='Method to use: vanilla, contradoc, sparsecl, sentli, cdit, hyper_simulation or her'
     )
     
     parser.add_argument(
@@ -1473,8 +1487,8 @@ def main():
     parser.add_argument(
         '--save_interval',
         type=int,
-        default=500,
-        help='Save results every N samples (default: 500)'
+        default=100,
+        help='Save results every N samples (default: 100)'
     )
     
     parser.add_argument(

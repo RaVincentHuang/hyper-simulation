@@ -188,9 +188,10 @@ def debug_text_to_hypergraph(
     print(f"\n⏱️ Timing (seconds): Step 1={time1-time0:.2f}({(time1-time0)/(time5-time0)*100:.1f}%) while loading takes {time15-time0:.2f}({(time15-time0)/(time5-time0)*100:.1f}%), Step 2={time2-time1:.2f}({(time2-time1)/(time5-time0)*100:.1f}%), Step 3={time3-time2:.2f}({(time3-time2)/(time5-time0)*100:.1f}%), Step 4={time4-time3:.2f}({(time4-time3)/(time5-time0)*100:.1f}%), Total={time5-time0:.2f}")
     return hypergraph
 
+# The first expedition to reach the geographic South Pole was led by the Norwegian explorer Roald Amundsen. He and four others arrived at the pole on 14 December 1911, five weeks ahead of a British party led by Robert Falcon Scott as part of the Terra Nova Expedition. Amundsen and his team returned safely to their base, and later learned that Scott and his four companions had died on their return journey.
 
 if __name__ == "__main__":
-    text = """The first expedition to reach the geographic South Pole was led by the Norwegian explorer Roald Amundsen. He and four others arrived at the pole on 14 December 1911, five weeks ahead of a British party led by Robert Falcon Scott as part of the Terra Nova Expedition. Amundsen and his team returned safely to their base, and later learned that Scott and his four companions had died on their return journey.
+    text = """Scholar Nilsson delivered a keynote at Stockholmsmässan on August. He also participated in roundtable discussions. That day, the venue hosted an AI ethics seminar, which featured his keynote and discussions.
 """
     
     parser = ArgumentParser(description="Debug spaCy dependency pipeline steps.")
