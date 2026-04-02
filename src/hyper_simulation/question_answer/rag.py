@@ -173,7 +173,7 @@ class RAGPipeline:
                     choices_str = "\n" + "\n".join(formatted)
             
             full_instruction = f"{instruction_text}\n\n### Input:\n{item['question']}{choices_str}"
-
+            
             # C. 应用模板
             # 复用 PROMPT_DICT
             prompt = PROMPT_DICT["prompt_no_input_retrieval"].format(

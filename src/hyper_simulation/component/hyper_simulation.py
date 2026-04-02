@@ -3,8 +3,9 @@ from typing import Dict, List, Set, Tuple
 from hyper_simulation.hypergraph.hypergraph import Hypergraph as LocalHypergraph, Vertex
 from simulation import Hypergraph as SimHypergraph, Hyperedge as SimHyperedge, Node, Delta, DMatch
 from hyper_simulation.component.semantic_cluster import calc_semantic_cluster_pairs, get_d_match
+from hyper_simulation.component.d_match import calc_d_match, calc_d_match_batch
 from hyper_simulation.hypergraph.linguistic import Pos
-from hyper_simulation.component.denial import get_matched_vertices, compute_allowed_pairs
+from hyper_simulation.component.denial import get_matched_vertices, compute_allowed_pairs, compute_allowed_pairs_batch, compute_allowed_pairs_batch_with_score, get_top_k_matched_vertices_by_scores
 import warnings
 from tqdm import tqdm
 from hyper_simulation.utils.log import getLogger
@@ -72,14 +73,15 @@ def build_delta_and_dmatch(
     delta = Delta()
     d_delta_matches: Dict[Tuple[int, int], Set[Tuple[int, int]]] = {}
     
-    # Step 1: 多节点语义簇（结构化匹配，带异常隔离）
+    # Step 1: 多节点语义簇（批量结构化匹配）
     cluster_count = 0
     # === 阶段1：记录原始结果（来自 get_semantic_cluster_pairs）===
-    # raw_pairs = get_semantic_cluster_pairs(query_local_hg, data_local_hg, allowed_pairs, vertex_to_sim_id_q, vertex_to_sim_id_d, max_hops_query=2, max_hops_data=4, cluster_sim_threshold=0.4, logger=sc_logger)
     raw_pairs = calc_semantic_cluster_pairs(query_local_hg, data_local_hg, matched_vertices, cluster_sim_threshold, is_multihop, logger=sc_logger)
+    time1 = time.time()
+    print(f"Semantic cluster pair calculation time: {time1 - delta_start:.2f} seconds")
     sc_logger.info(f"语义簇生成完成: 共 {len(raw_pairs)} 个原始簇对")
-    # === 阶段2：处理并记录过滤后结果 ===
-    cluster_count = 0
+    # === 阶段2：第一遍循环 - 过滤并收集候选簇对 ===
+    candidate_cluster_pairs = []  # list of (sc_q, sc_d, sim_score, metadata_dict)
     for sc_q, sc_d, sim_score in raw_pairs:
         # --- 提取结构信息 ---
         q_vertices = sc_q.get_vertices()
@@ -127,8 +129,8 @@ def build_delta_and_dmatch(
             sc_logger.info(f"  → 跳过: 映射缺失 (Q{q_rep.id}→{q_nid}, D{d_rep.id}→{d_nid})")
             continue
 
-        q_es = list({e for v in q_vs for e in query_node_edges.get(vertex_to_sim_id_q.get(v), []) if e})
-        d_es = list({e for v in d_vs for e in data_node_edges.get(vertex_to_sim_id_d.get(v), []) if e})
+        q_es = list({e for v in q_vs if v in vertex_to_sim_id_q for e in query_node_edges.get(vertex_to_sim_id_q[v], []) if e})
+        d_es = list({e for v in d_vs if v in vertex_to_sim_id_d for e in data_node_edges.get(vertex_to_sim_id_d[v], []) if e})
 
         sc_id = delta.add_sematic_cluster_pair(
             Node(q_nid, q_text),
@@ -137,18 +139,66 @@ def build_delta_and_dmatch(
             d_es
         )
 
+        # 存储元数据供批量处理使用
+        candidate_cluster_pairs.append({
+            'sc_q': sc_q,
+            'sc_d': sc_d,
+            'sc_id': sc_id,
+            'q_rep': q_rep,
+            'd_rep': d_rep,
+            'q_text': q_text,
+            'd_text': d_text,
+            'q_triple_repr': q_triple_repr,
+            'd_triple_repr': d_triple_repr,
+            'q_vertices': q_vertices,
+            'd_vertices': d_vertices,
+            'q_vs': q_vs,
+            'd_vs': d_vs,
+            'q_edges': q_edges,
+            'd_edges': d_edges,
+            'sim_score': sim_score,
+        })
+
+    # === 阶段3：批量计算 D-Match ===
+    if candidate_cluster_pairs:
+        sc_pairs = [(md['sc_q'], md['sc_d']) for md in candidate_cluster_pairs]
         try:
+            batch_results = calc_d_match_batch(sc_pairs, dmatch_threshold)
+        except (AssertionError, AttributeError, IndexError) as e:
+            sc_logger.warning(f"  → 批量匹配异常: {type(e).__name__}, 降级为空匹配")
+            batch_results = [[] for _ in sc_pairs]
+    else:
+        batch_results = []
+
+    # === 阶段4：处理批量结果并记录日志 ===
+    for batch_idx, meta in enumerate(candidate_cluster_pairs):
+        cluster_count += 1
+        sc_id = meta['sc_id']
+        q_rep = meta['q_rep']
+        d_rep = meta['d_rep']
+        q_text = meta['q_text']
+        d_text = meta['d_text']
+        q_triple_repr = meta['q_triple_repr']
+        d_triple_repr = meta['d_triple_repr']
+        q_vertices = meta['q_vertices']
+        d_vertices = meta['d_vertices']
+        q_vs = meta['q_vs']
+        d_vs = meta['d_vs']
+        q_edges = meta['q_edges']
+        d_edges = meta['d_edges']
+        sim_score = meta['sim_score']
+
+        # 从批量结果中提取当前簇对的匹配
+        if batch_idx < len(batch_results):
             matches = {
                 (vertex_to_sim_id_q[vq], vertex_to_sim_id_d[vd])
-                for vq, vd, _ in get_d_match(sc_q, sc_d, dmatch_threshold)
+                for vq, vd, _ in batch_results[batch_idx]
                 if vq in vertex_to_sim_id_q and vd in vertex_to_sim_id_d
             }
-        except (AssertionError, AttributeError, IndexError) as e:
-            sc_logger.warning(f"  → 语义簇匹配异常: {type(e).__name__}, 降级为空匹配")
+        else:
             matches = set()
 
         d_delta_matches[(sc_id, sc_id)] = matches
-        cluster_count += 1
 
         # --- 日志：采纳的簇（含完整结构）---
         sc_logger.info(
@@ -176,6 +226,9 @@ def build_delta_and_dmatch(
         )
         d_delta_matches[(sc_id, sc_id)] = {(q_id, d_id)}  # 单节点簇必有自身匹配
     
+    time2 = time.time()
+    print(f"D-Match compute time: {time2 - time1:.2f} seconds")
+    
     return delta, DMatch.from_dict(d_delta_matches)
 
 
@@ -198,10 +251,17 @@ def compute_hyper_simulation(
     sim_logger.debug(f"\tstart denial comment calc")
     # 计算宽松的语义允许性
     dc_logger = getLogger("denial_comment")
-    allowed = compute_allowed_pairs(q_vertices, d_vertices)
+    # allowed = compute_allowed_pairs(q_vertices, d_vertices)
+    time1 = time.time()
+    allowed, confidence_scores = compute_allowed_pairs_batch_with_score(q_vertices, d_vertices)
+    time2 = time.time()
+    print(f"DC computation time: {time2 - time1:.2f} seconds")
     q_vertices_list = list(q_vertices.values())
     d_vertices_list = list(d_vertices.values())
-    match_vertices = get_matched_vertices(q_vertices_list, d_vertices_list)
+    time3 = time.time()
+    # calc the match_vertices based on the confidence_scores and q_vertices and d_vertices
+    match_vertices = get_top_k_matched_vertices_by_scores(q_vertices, d_vertices, confidence_scores, k=5)
+    # match_vertices = get_matched_vertices(q_vertices_list, d_vertices_list)
     # 定义type_same_fn（基于Sim ID空间）
     def type_same_fn(x_id: int, y_id: int) -> bool:
         return (x_id, y_id) in allowed
@@ -223,8 +283,11 @@ def compute_hyper_simulation(
         vertex_to_sim_id_q=q_vid_map,
         vertex_to_sim_id_d=d_vid_map,
         matched_vertices=match_vertices,
-        dmatch_threshold=0.3
+        dmatch_threshold=0.7
     )
+    # time4 = time.time()
+    # print(f"Delta and D-Match time: {time4 - time3:.2f} seconds")
+
     
     # 执行超图模拟
     start_time = time.time()

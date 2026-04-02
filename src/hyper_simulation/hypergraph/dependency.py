@@ -1,160 +1,10 @@
 from enum import Enum, IntEnum
 from thefuzz import process
 
-from hyper_simulation.hypergraph.abstraction import TokenAbstractor
+# from hyper_simulation.hypergraph.abstraction import TokenAbstractor
 
 from hyper_simulation.hypergraph.linguistic import QueryType, Pos, Tag, Dep, Entity
 from hyper_simulation.hypergraph.entity import ENT
-# class QueryType(Enum):
-#     BELONGS = 1 # whose
-#     WHAT = 2 # what / which
-#     WHICH = 3 # what / which
-#     PERSON = 4 # who
-#     ATTRIBUTE = 5 # how *, *: str
-#     NUMBER = 6 # how many / how much / how fast
-#     TIME = 7 # when
-#     LOCATION = 8 # where
-#     REASON = 9 # why
-
-# class Pos(IntEnum):
-#     ADP = 1
-#     ADV = 2
-#     ADJ = 3
-#     AUX = 4
-#     CCONJ = 5
-#     DET = 6
-#     INTJ = 7
-#     NOUN = 8
-#     NUM = 9
-#     PART = 10
-#     PRON = 11
-#     PROPN = 12
-#     PUNCT = 13
-#     SCONJ = 14
-#     SYM = 15
-#     VERB = 16
-#     X = 17
-#     SPACE = 18
-
-# class Tag(IntEnum):
-#     CC = 1
-#     CD = 2
-#     DT = 3
-#     EX = 4
-#     FW = 5
-#     IN = 6
-#     JJ = 7
-#     JJR = 8
-#     JJS = 9
-#     MD = 10
-#     NN = 11
-#     NNS = 12
-#     NNP = 13
-#     NNPS = 14
-#     POS = 15
-#     PRP = 16
-#     PRPD = 17
-#     RB = 18
-#     RBR = 19
-#     RBS = 20
-#     RP = 21
-#     TO = 22
-#     UH = 23
-#     VB = 24
-#     VBZ = 25
-#     VBP = 26
-#     VBD = 27
-#     VBN = 28
-#     VBG = 29
-#     WP = 30
-#     WPD = 31
-#     WRB = 32
-#     _SP = 33
-#     HYPH = 34
-#     ADD = 35
-#     WDT = 36
-#     PDT = 37
-#     XX = 38
-#     NFP = 39
-#     SYM = 40
-#     LS = 41
-    
-#     WILDCARD = 99
-
-# class Dep(IntEnum):
-#     nsubj = 1
-#     nsubjpass = 2
-#     csubj = 3
-#     csubjpass = 4
-#     dobj = 5
-#     iobj = 6
-#     pobj = 7
-#     dative = 8
-    
-#     amod = 9
-#     advmod = 10
-#     nummod = 11
-#     quantmod = 12
-#     npadvmod = 13
-#     neg = 14
-    
-#     acl = 15
-#     advcl = 16
-#     ccomp = 17
-#     xcomp = 18
-#     relcl = 19
-#     mark = 20
-    
-#     prep = 21
-#     agent = 22
-#     cc = 23
-#     conj = 24
-#     case = 25
-#     prt = 26
-    
-#     appos = 27
-#     attr = 28
-#     acomp = 29
-#     oprd = 30
-#     aux = 31
-#     auxpass = 32
-#     expl = 33
-#     parataxis = 34
-#     meta = 35
-#     det = 36
-#     poss = 37
-#     predet = 38
-#     preconj = 39
-#     intj = 40
-#     punct = 41
-#     dep = 42
-    
-#     compound = 43
-#     pcomp = 44
-#     nmod = 45
-
-#     ROOT = 46
-
-# class Entity(Enum):
-#     PERSON = 1
-#     NORP = 2
-#     FAC = 3
-#     ORG = 4
-#     GPE = 5
-#     LOC = 6
-#     PRODUCT = 7
-#     EVENT = 8
-#     WORK_OF_ART = 9
-#     LAW = 10
-#     LANGUAGE = 11
-#     DATE = 12
-#     TIME = 13
-#     PERCENT = 14
-#     MONEY = 15
-#     QUANTITY = 16
-#     ORDINAL = 17
-#     CARDINAL = 18
-#     NOT_ENTITY = 99
 
 dead_dep = {Dep.dative, Dep.prt, Dep.parataxis}
 solved_dep = {Dep.meta, Dep.poss, Dep.det, Dep.predet, Dep.intj}
@@ -258,7 +108,66 @@ class Node:
         
     def set_entity(self, entity: ENT) -> None:
         self.entity = entity
+    
+    def type_str(self) -> str | None:
+        if self.pos in {Pos.VERB, Pos.AUX}:
+            return None
         
+        if self.is_query:
+            query_map = {
+                QueryType.LOCATION: "LOCATION",
+                QueryType.TIME: "TEMPORAL",
+                QueryType.ATTRIBUTE: "ATTRIBUTE",
+                QueryType.PERSON: "PERSON",
+                QueryType.BELONGS: "COMPONENTS",
+                QueryType.REASON: "REASON",
+            }
+            if self.query_type in query_map:
+                return query_map[self.query_type]
+        
+        if self.entity:
+            entity_mapping = {
+                ENT.CONCEPT: "CONCEPT",
+                ENT.TEMPORAL: "TEMPORAL",
+                ENT.NUMBER: "NUMBER",
+                ENT.ORGANISM: "ORGANISM",
+                ENT.FOOD: "FOOD",
+                ENT.MEDICAL: "MEDICAL",
+                ENT.ANATOMY: "ANATOMY",
+                ENT.SUBSTANCE: "SUBSTANCE",
+                ENT.ASTRO: "ASTRO",
+                ENT.AWARD: "AWARD",
+                ENT.VEHICLE: "VEHICLE",
+                ENT.PERSON: "PERSON",
+                ENT.COUNTRY: "COUNTRY",
+                ENT.LOC: "LOCATION",
+                ENT.ORG: "ORGANIZATION",
+                ENT.FAC: "FACILITY",
+                ENT.GPE: "Geopolitical",
+                ENT.NORP: "NORP",
+                ENT.PRODUCT: "PRODUCT",
+                ENT.WORK_OF_ART: "WORK_OF_ART",
+                ENT.LAW: "LAW",
+                ENT.LANGUAGE: "LANGUAGE",
+                ENT.OCCUPATION: "OCCUPATION",
+                ENT.EVENT: "EVENT",
+                ENT.THEORY: "THEORY",
+                ENT.GROUP: "GROUP",
+                ENT.FEATURE: "FEATURE",
+                ENT.ECONOMIC: "ECONOMIC",
+                ENT.SOCIOLOGY: "SOCIOLOGY",
+                ENT.PHENOMENON: "PHENOMENON",
+            }
+            if self.entity in entity_mapping:
+                return entity_mapping[self.entity]
+        
+        if self.pos == Pos.ADJ:
+            return "ADJECTIVE"
+        
+        if self.pos == Pos.ADV:
+            return "ADVERB"
+        
+    
     @staticmethod
     def from_doc(doc, abst) -> tuple[list['Node'], list['Node']]:
         nodes: list[Node] = []
@@ -481,13 +390,13 @@ class Node:
             assert root.dep == Dep.ROOT or root.dep == Dep.dep, f"Root node dep should be ROOT or _SP, got {root.dep.name}: '{root.text}'\nDOC: '{doc.text}'"
         
         # 预计算 WordNet 抽象信息
-        abstractor = TokenAbstractor()
-        for token in doc:
-            node = node_map.get(token.i)
-            if not node:
-                continue
-            node.wn_abstraction = abstractor.get_abstraction(token, doc)
-            node.wn_hypernym_path = abstractor.get_abstraction_path(token, doc)
+        # abstractor = TokenAbstractor()
+        # for token in doc:
+        #     node = node_map.get(token.i)
+        #     if not node:
+        #         continue
+        #     node.wn_abstraction = abstractor.get_abstraction(token, doc)
+        #     node.wn_hypernym_path = abstractor.get_abstraction_path(token, doc)
         
         return nodes, roots
     
@@ -825,7 +734,7 @@ class Dependency:
             
             if self.is_query and node.pos == Pos.PRON and (not is_relative_pronoun(node)): # check if the pronoun is a wh-pronoun that can be a query word
                 wh_pronouns = {"what", "which", "who", "whom", "whose"}
-                if node.text.lower() in wh_pronouns:
+                if node.text.lower() in wh_pronouns or node.tag in {"WP", "WP$"}:
                     node.is_query = True
                     pronoun = node.text.lower()
                     if pronoun == "which":
@@ -849,7 +758,7 @@ class Dependency:
             
             if self.is_query and (node.pos == Pos.ADV or (node.pos == Pos.SCONJ and (not is_clause_sconj(node)))):
                 wh_adverbs = {"when", "where", "why"}
-                if node.text.lower() in wh_adverbs:
+                if node.text.lower() in wh_adverbs or node.tag in {"WRB"}:
                     node.is_query = True
                     adverb = node.text.lower()
                     if adverb == "when":
@@ -861,7 +770,7 @@ class Dependency:
                     self.vertexes.append(node)
                     continue
 
-            if self.is_query and node.pos == Pos.DET and node.dep == Dep.poss and node.text.lower() == "whose":
+            if self.is_query and node.pos == Pos.DET and node.dep == Dep.poss and (node.text.lower() == "whose" or node.tag == "WP$"):
                 node.is_vertex = True
                 node.is_query = True
                 node.query_type = QueryType.BELONGS
@@ -919,13 +828,23 @@ class Dependency:
     # Then we use the `thefuzz` to get all vertex a id, and calculate a map.
     def calc_relationships(self) -> tuple[list[Node], list[Relationship], dict[Node, int]]:
         
-        def _match_same(best_match, score, node: Node, choices_map: dict[str, int], pos_map: dict[int, Pos]) -> bool:
-            # if best_match's POS is ​​PRON​​ or node's POS is ​​PRON​​, we do not consider it a match
-            if pos_map[choices_map[best_match]] == Pos.PRON or node.pos == Pos.PRON:
+        def _match_same(
+            best_match,
+            score,
+            node: Node,
+            choices_map: dict[str, int],
+            pos_map: dict[int, Pos],
+            entity_map: dict[int, Entity],
+            ent_map: dict[int, ENT],
+        ) -> bool:
+            candidate_id = choices_map[best_match]
+            virtual = {Pos.PRON, Pos.AUX, Pos.VERB}
+            if pos_map[candidate_id] in virtual or node.pos in virtual:
                 return False
-            elif score >= 90 and (pos_map[choices_map[best_match]] == node.pos):
+            node_ent = node.entity if node.entity is not None else ENT.NOT_ENT
+            if score == 100:
                 return True
-            elif score == 100:
+            elif score >= 90 and (pos_map[candidate_id] == node.pos) and (entity_map[candidate_id] == node.ent) and (ent_map[candidate_id] == node_ent):
                 return True
             return False
         
@@ -966,14 +885,16 @@ class Dependency:
         choices = []
         choices_map: dict[str, int] = {}
         pos_map: dict[int, Pos] = {}
+        entity_map: dict[int, Entity] = {}
+        ent_map: dict[int, ENT] = {}
         cnt = 1
         deferred_coref_nodes: list[Node] = []
         for node in self.vertexes:
-            print(f"Node '{node.text}'", end="")
-            if node.coref_primary:
-                print(f" (coref primary: '{node.coref_primary.text}')")
-            else:
-                print()
+            # print(f"Node '{node.text}'", end="")
+            # if node.coref_primary:
+            #     print(f" (coref primary: '{node.coref_primary.text}')")
+            # else:
+            #     print()
             if node.coref_primary:
                 deferred_coref_nodes.append(node)
                 continue
@@ -981,7 +902,7 @@ class Dependency:
             text = base_text.lower()
             extraction = process.extractOne(text, choices) if choices else None
             match extraction:
-                case (best_match, score) if _match_same(best_match, score, node, choices_map, pos_map):
+                case (best_match, score) if _match_same(best_match, score, node, choices_map, pos_map, entity_map, ent_map):
                     vertex_id_map[node] = choices_map[best_match]
                     pos_map[vertex_id_map[node]] = node.pos
                 case _:
@@ -989,6 +910,8 @@ class Dependency:
                     choices_map[text] = cnt
                     vertex_id_map[node] = cnt
                     pos_map[cnt] = node.pos
+                    entity_map[cnt] = node.ent
+                    ent_map[cnt] = node.entity if node.entity is not None else ENT.NOT_ENT
                     cnt += 1
         # print(f"【……】Deferred coreference nodes to process: {len(deferred_coref_nodes)}")
         # for node in deferred_coref_nodes:
@@ -1000,7 +923,7 @@ class Dependency:
             text = base_text.lower()
             extraction = process.extractOne(text, choices) if choices else None
             match extraction:
-                case (best_match, score) if _match_same(best_match, score, node, choices_map, pos_map):
+                case (best_match, score) if _match_same(best_match, score, node, choices_map, pos_map, entity_map, ent_map):
                     vertex_id_map[node] = choices_map[best_match]
                     pos_map[vertex_id_map[node]] = node.pos
                 case _:
@@ -1008,6 +931,8 @@ class Dependency:
                     choices_map[text] = cnt
                     vertex_id_map[node] = cnt
                     pos_map[cnt] = node.pos
+                    entity_map[cnt] = node.ent
+                    ent_map[cnt] = node.entity if node.entity is not None else ENT.NOT_ENT
                     cnt += 1
 
         # Phase 1: assign IDs for coreference primary nodes first.

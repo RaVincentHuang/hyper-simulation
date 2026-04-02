@@ -24,3 +24,5 @@ logs/
 mid_result/
 logs/
 logs_1/
+
+*.lock

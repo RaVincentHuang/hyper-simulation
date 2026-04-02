@@ -75,6 +75,26 @@ def _restrict_correfs(clusters: list[list[tuple[int, int]]], level: int=0) -> li
                 restricted.append(cluster)
     return restricted
 
+def _left_descendants(token: Token) -> list[Token]:
+    # Calculate left descendants of a token, they MUST be continuous and end at token.i - 1
+    descendants = []
+    for left in reversed(list(token.lefts)):
+        if left.i != token.i - 1:
+            break
+        descendants.append(left)
+        descendants.extend(_left_descendants(left))
+    return descendants
+
+def _right_descendants(token: Token) -> list[Token]:
+    # Calculate right descendants of a token, they MUST be continuous and start at token.i + 1
+    descendants = []
+    for right in token.rights:
+        if right.i != token.i + 1:
+            break
+        descendants.append(right)
+        descendants.extend(_right_descendants(right))
+    return descendants
+
 def calc_correfs_str(doc: Doc) -> set[str]:
     correfs: set[str] = set()
     clusters = getattr(doc._, "coref_clusters", None)
@@ -250,59 +270,6 @@ def combine(doc: Doc, correfs: set[str]=set(), is_query: bool = False, corefs_cl
     ent_token_idxs: set[int] = set()
     bigram_lr_scores = _calc_bigram_likelihood_scores(doc)
     lr_threshold = 7.5
-
-    # Correferences
-    # token_map = _calc_same_tokens(doc, correfs)
-    # # print(f"Correfs: {correfs}")
-    # # print(f"Token map: {token_map}")
-    # for span_text, positions in token_map.items():
-    #     # print(f"Considering coreference span: {span_text}")
-    #     for start, end in positions:
-    #         span = doc[start:end]
-    #         if ent_token_idxs.intersection(range(span.start, span.end)):
-    #             continue
-    #         # print(f"Considering coreference span: {span.text}")
-    #         spans_to_merge.append(span)
-    #         ent_token_idxs.update(range(span.start, span.end))
-    
-    # links_to_merge: list[Span] = []
-    # links_token_idxs: set[int] = set()
-    
-    # # - linked phrases
-    # for token in doc:
-    #     # if token equals '-' alone, combine with left and right 
-    #     if token.text == "-" :
-    #         if token.i - 1 >= 0 and token.i + 1 < len(doc):
-    #             left_token, right_token = doc[token.i - 1], doc[token.i + 1]
-    #             if left_token.dep_ == "conj" or right_token.dep_ == "conj":
-    #                 continue
-    #             span = doc[token.i - 1:token.i + 2]
-    #             # print(f"Considering link span: {span}")
-    #             if links_token_idxs.intersection(range(span.start, span.end)):
-    #                 continue
-    #             links_to_merge.append(span)
-    #             links_token_idxs.update(range(span.start, span.end))
-        
-    #     # if token end with '-' then combine with the right
-    #     elif token.text.endswith("-") and token.i + 1 < len(doc):
-    #         span = doc[token.i:token.i + 2]
-    #         if links_token_idxs.intersection(range(span.start, span.end)):
-    #             continue
-    #         links_to_merge.append(span)
-    #         links_token_idxs.update(range(span.start, span.end))
-        
-    #     # if token start with '-' then combine with the left
-    #     elif token.text.startswith("-") and token.i - 1 >= 0:
-    #         span = doc[token.i - 1:token.i + 1]
-    #         if links_token_idxs.intersection(range(span.start, span.end)):
-    #             continue
-    #         links_to_merge.append(span)
-    #         links_token_idxs.update(range(span.start, span.end))
-    
-
-    # # Print All links_to_merge
-    # for span in links_to_merge:
-    #     print(f"Link span to merge: '{span.text}' ({span.start}, {span.end})")
     
     new_ents = []
     
@@ -329,14 +296,14 @@ def combine(doc: Doc, correfs: set[str]=set(), is_query: bool = False, corefs_cl
         
         # Extend left, if the left token is a compound to a token in the ent, or a token in ent is a compound to it.
         for i in range(ent.start - 1, -1, -1):
-            if is_compound_to_ent(doc[i], ent):
+            if is_compound_to_ent(doc[i], ent) and not (is_query and doc[i].pos_ == "PROPN"):
                 # Set the doc[i]'s entity type to ent_type
                 span_start = i
             else:
                 break
         # Extend right, if the right token is a compound to a token in the ent, or a token in ent is a compound to it.
         for i in range(ent.end, len(doc)):
-            if is_compound_to_ent(doc[i], ent):
+            if is_compound_to_ent(doc[i], ent) and not (is_query and doc[i].pos_ == "PROPN"):
                 span_end = i + 1
             else:
                 break
@@ -376,7 +343,7 @@ def combine(doc: Doc, correfs: set[str]=set(), is_query: bool = False, corefs_cl
     doc.set_ents(filter_spans(new_ents), default="unmodified")
     
     # Noun phrases
-    not_naive_dets = {"all", "both", "every", "each", "either", "neither", "whichever", "whatever"}
+    naive_dets = { "the", "a", "an" }
     wh_dets = {"what", "which", "whose", "whichever", "whatever"}
 
     # Add [`amod`, `advmod`, `neg`, `nummod`, `quantmod`, `npadvmod`] modifiers to noun phrases
@@ -398,16 +365,18 @@ def combine(doc: Doc, correfs: set[str]=set(), is_query: bool = False, corefs_cl
                 if left.dep_ == "amod":
                     pair = (left.text.lower(), left.head.text.lower())
                     score = bigram_lr_scores.get(pair, 0.0)
-                    print(f"Bigram LR score for {pair}: {score} - {score >= lr_threshold}")
+                    # print(f"Bigram LR score for {pair}: {score} - {score >= lr_threshold}")
                     if score >= lr_threshold:
                         span_start = left.i
                     else:
                         break
                 # WARN: we remove the combine of `det` 
                 # elif left.dep_ in {"advmod", "neg", "nummod", "quantmod", "npadvmod", "compound"} or (left.dep_ == "det" and left.text.lower() not in not_naive_dets):
-                elif left.dep_ in {"advmod", "neg", "nummod", "quantmod", "npadvmod", "compound"}:
-                    # if is_query and left.dep_ == "det" and left.text.lower() in wh_dets:
-                    #     break
+                elif left.dep_ in {"advmod", "neg", "nummod", "quantmod", "npadvmod", "compound"} or (left.dep_ == "det" and  left.text.lower() not in naive_dets):
+                    if is_query and left.dep_ == "compound" and left.pos_ == "PROPN":
+                        break
+                    if is_query and left.dep_ == "det" and left.tag_ == "WDT":
+                        break
                     span_start = left.i
                 else:
                     break
@@ -454,8 +423,10 @@ def combine(doc: Doc, correfs: set[str]=set(), is_query: bool = False, corefs_cl
         if token.pos_ == "VERB":
             span_start = token.i
             span_end = token.i + 1
+            # print(f"{token}'s lefts: {_left_descendants(token)}, rights: {_right_descendants(token)}")
 
-            for left in reversed(list(token.lefts)):
+            # for left in reversed(list(token.lefts)):
+            for left in _left_descendants(token):
                 if left.i != span_start - 1:
                     break
                 if left.dep_ in {"aux", "auxpass", "neg", "advmod"}:
@@ -463,7 +434,8 @@ def combine(doc: Doc, correfs: set[str]=set(), is_query: bool = False, corefs_cl
                 else:
                     break
             
-            for right in token.rights:
+            # for right in token.rights:
+            for right in _right_descendants(token):
                 # if right is not near the verb, break
                 if right.i != span_end:
                     break

@@ -3,7 +3,9 @@ from hyper_simulation.hypergraph.linguistic import QueryType, Pos, Tag, Dep, Ent
 from hyper_simulation.hypergraph.entity import ENT
 import itertools
 import logging
-logger = logging.getLogger(__name__)
+from hyper_simulation.utils.log import getLogger
+
+logger = getLogger(__name__)
 # import index
 
 class Vertex:
@@ -20,6 +22,10 @@ class Vertex:
         
         self.is_group: bool = False
         self.group_nodes: list[Node] = []
+        self.type_cache: ENT | None = None
+        
+    def get_provenance(self) -> set[int]:
+        return self.provenance_ids
         
     def __hash__(self) -> int:
         return hash(self.id)
@@ -172,6 +178,15 @@ class Vertex:
     
     def is_virtual(self) -> bool:
         return all(p == Pos.PRON or p == Pos.AUX for p in self.poses)
+    
+    def is_verb(self) -> bool:
+        return any(p == Pos.VERB or p == Pos.AUX for p in self.poses)
+    
+    def is_adjective(self) -> bool:
+        return any(p == Pos.ADJ for p in self.poses)
+    
+    def is_adverb(self) -> bool:
+        return any(p == Pos.ADV for p in self.poses)
 
     def _wordnet_domain_match(self, other: 'Vertex') -> bool | None:
         """WordNet 抽象域/上位词匹配"""
@@ -300,6 +315,37 @@ class Vertex:
         ner = any(e != Entity.NOT_ENTITY for e in self.ents)
         wordnet = any(n.entity and n.entity != ENT.NOT_ENT for n in self.nodes)
         return ner or wordnet
+    
+    def type(self) -> ENT | None:
+        if self.type_cache is not None:
+            return self.type_cache
+        # check for ENTs
+        candidate_type = None
+        if self.has_entity():
+            for n in self.nodes:
+                if n.entity and n.entity != ENT.NOT_ENT:
+                    if candidate_type and n.entity.level() < candidate_type.level():
+                        continue
+                    candidate_type = n.entity
+        if candidate_type:
+            self.type_cache = candidate_type
+            return self.type_cache
+        # check for POS: `​​NUM​​` -> NUMBER
+        for n in self.nodes:
+            if n.pos == Pos.NUM:
+                candidate_type = ENT.NUMBER
+                break
+        
+        self.type_cache = candidate_type
+        return self.type_cache
+    
+    def query_type(self) -> QueryType | None:
+        if not self.is_query():
+            return None
+        for n in self.nodes:
+            if n.is_query and n.query_type:
+                return n.query_type
+        return None
 
 class Hyperedge:
     def __init__(self, root: Vertex, vertices: list[Vertex], desc: str, full_desc: str, start: int, end: int):
@@ -319,9 +365,31 @@ class Hyperedge:
     def current_node(self, vertex: Vertex) -> Node:
         if vertex in self._current_node_cache:
             return self._current_node_cache[vertex]
+
+        def in_edge_range(n: Node) -> bool:
+            return self.start <= n.index <= self.end
+
+        # 优先：同源且在当前超边 token 范围内。
+        if self.hypergraph_id is not None:
+            for node in vertex.nodes:
+                if node.source_id == self.hypergraph_id and in_edge_range(node):
+                    self._current_node_cache[vertex] = node
+                    return node
+
+            # 次优先：同源但索引可能失配（跨文档合并常见），仍尽量返回同源节点。
+            for node in vertex.nodes:
+                if node.source_id == self.hypergraph_id:
+                    logger.warning(
+                        f"Index mismatch but source matched in merged hyperedge: "
+                        f"Vertex '{vertex.text()}', "
+                        f"source_id={node.source_id}, edge_source={self.hypergraph_id}, "
+                        f"Hyperedge range [{self.start}-{self.end}], Desc: '{self.desc[:50]}...'"
+                    )
+                    self._current_node_cache[vertex] = node
+                    return node
+
         for node in vertex.nodes:
-            # print(f"node index is {node.index}, hyperedge range is {self.start}-{self.end}")
-            if node.index >= self.start and node.index <= self.end:
+            if in_edge_range(node):
                 self._current_node_cache[vertex] = node
                 return node
         # TODO: 对于跨文档合并导致的 index 不匹配情况，我们可以添加文本的index作为补充 第 i 个文本
@@ -330,10 +398,12 @@ class Hyperedge:
         if vertex.nodes:
             logger.warning(
                 f"Index mismatch in merged hyperedge: "
-                f"Vertex '{vertex.text()}' (nodes={[n.index for n in vertex.nodes]}), "
+                f"Vertex '{vertex.text()}' (nodes={[n.index for n in vertex.nodes]}, sources={[n.source_id for n in vertex.nodes]}), "
                 f"Hyperedge range [{self.start}-{self.end}], "
+                f"edge_source={self.hypergraph_id}, "
                 f"Desc: '{self.desc[:50]}...'"
             )
+            self._current_node_cache[vertex] = vertex.nodes[0]
             return vertex.nodes[0]
         
         assert False, f"Vertex does not contain a node in hyperedge range, Vertex nodes: {vertex.nodes}, Hyperedge range: {self.start}-{self.end}, Hyperedge is {self.desc}"
@@ -465,9 +535,9 @@ class Path:
 
 class Hypergraph:
     def __init__(self, vertices: list[Vertex], hyperedges: list[Hyperedge], doc: LocalDoc) -> None:
-        self.vertices = vertices
-        self.hyperedges = hyperedges
-        self.doc = doc
+        self.vertices: list[Vertex] = vertices
+        self.hyperedges: list[Hyperedge] = hyperedges
+        self.doc: LocalDoc = doc
         self.contained_edges: dict[Vertex, list[Hyperedge]] = {}
         for hyperedge in self.hyperedges:
             for vertex in hyperedge.vertices:

@@ -94,6 +94,8 @@ test_build = { cmd = "python tests/test_hypergrah_gen.py"}
 display = { cmd = "python tests/tools/spacy_debug.py" }
 wordnet = { cmd = "python tests/tools/wordnet_X.py" }
 linking = { cmd = "python src/hyper_simulation/hypergraph/linking.py" }
+load = { cmd = "python tests/tools/build.py" }
+musique = { cmd = "python tests/tasks/build_musique.py" }
 
 [feature.simulation.dependencies]
 python = "3.10.*"
@@ -130,6 +132,12 @@ LegalBench = {cmd = "python src/hyper_simulation/question_answer/rag_no_retrival
 test_nli = { cmd = "python tests/tools/nli.py" }
 wordnet = { cmd = "python tests/tools/wordnet_show.py" }
 linking = { cmd = "python src/hyper_simulation/hypergraph/linking.py" }
+debug = { cmd = "python tests/tools/hyper.py" }
+dump = { cmd = "python tests/tools/dump_hypergraph.py" }
+enrich = { cmd = "python tests/tools/enrich.py" }
+refine = { cmd = "python tests/tools/refine.py" }
+title = { cmd = "python tests/tools/title.py" }
+trans = { cmd = "python tests/tools/title_trans.py" }
 
 [environments]
 hypergraph = { features = ["hypergraph"] }

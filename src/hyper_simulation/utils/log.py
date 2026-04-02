@@ -57,7 +57,8 @@ def getLogger(name: str, level: str = "INFO", log_dir: str = "logs") -> logging.
     
     # 控制台处理器 - 使用自定义的TqdmLoggingHandler输出到stderr
     console = TqdmLoggingHandler()
-    console.setLevel(logging.INFO)
+    console.setLevel(logging.ERROR)
+    # console.setLevel(logging.INFO)
     console.setFormatter(formatter)
 
     # 文件 Handler (保持不变)
@@ -79,7 +80,7 @@ def getLogger(name: str, level: str = "INFO", log_dir: str = "logs") -> logging.
         logger.handlers.clear()
         
     logger.addHandler(console)
-    logger.addHandler(file_handler)
+    # logger.addHandler(file_handler)
     
     # 防止向上传播到root logger，避免重复记录
     logger.propagate = False

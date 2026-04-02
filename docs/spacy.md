@@ -77,7 +77,8 @@ token.morph.get(.)
 `​​NN​​` | Noun, Singular or Mass | 单数名词或不可数名词 | cat, water 
 `​​NNS​​` | Noun, Plural | 复数名词 | cats, books 
 `​​NNP​​` | Proper Noun, Singular | 单数专有名词 | London, John 
-`​NNPS​​` | Proper Noun, Plural | 复数专有名词 | The Americas | ​​PDT​​ | Predeterminer | 前位限定词 | allthe kids, bothsides 
+`​NNPS​​` | Proper Noun, Plural | 复数专有名词 | The Americas
+`​​PDT​​` | Predeterminer | 前位限定词 | all the kids, both sides 
 `​POS​​` | Possessive Ending | 所有格结尾 | 's(如 in John's) 
 `​PRP​​` | Personal Pronoun | 人称代词 | I, you, he, it 
 `​​PRP$`​​ | Possessive Pronoun | 物主代词 | my, your, his 
@@ -85,14 +86,16 @@ token.morph.get(.)
 `​​RBR​​` | Adverb, Comparative | 副词比较级 | faster, better 
 `​RBS​​` | Adverb, Superlative | 副词最高级 | fastest, best 
 `​RP​​` | Particle | 小品词 | give​​up​​ 
-`​​TO​​` | to | 不定式符号 "to" | torun 
+`​​TO​​` | to | 不定式符号 "to" | to run 
 `​​UH​​` | Interjection | 感叹词 | hello, oh, wow 
 `​​VB​​` | Verb, Base Form | 动词原形 | run, eat 
 `​VBZ​​` | Verb, 3rd person Sing. Present | 动词第三人称单数现在式 | he​​runs​​ 
 `​​VBP​​` | Verb, Non-3rd person Sing. Present | 动词非第三人称单数现在式 | I/you/we​​run​​ 
 `​​VBD​​` | Verb, Past Tense | 动词过去式 | ran, ate 
 `​​VBN​​` | Verb, Past Participle | 动词过去分词 | has​​run​​, was​​eaten​​ 
-`​​VBG​​` | Verb, Gerund/Present Participle | 动词动名词/现在分词 | is​​running​​ `​WDT​​` | Wh-determiner | Wh-限定词 | which, what, whose 
+`​​VBG​​` | Verb, Gerund/Present Participle | 动词动名词/现在分词 | is​​running​​ 
+
+`​WDT​​` | Wh-determiner | Wh-限定词 | which, what, whose 
 `​​WP​​` | Wh-pronoun | Wh-代词 | who, what 
 `​​WP$​`​ | Possessive Wh-pronoun | 所有格 Wh-代词 | whose 
 `​​WRB​​` | Wh-adverb | Wh-副词 | when, where, why

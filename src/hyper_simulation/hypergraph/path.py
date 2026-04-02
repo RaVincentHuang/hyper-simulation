@@ -160,3 +160,164 @@ def find_shortest_hyperpaths_local(
             result[(u, v)] = path
 
     return result
+
+
+def find_shortest_hyperpaths_bounded(
+    hypergraph: Hypergraph,
+    pairs: List[Tuple[Vertex, Vertex]],
+    max_hops: int,
+) -> Dict[Tuple[Vertex, Vertex], List[Hyperedge]]:
+    """返回每对 (u, v) 在 max_hops 内的一条最短超路径。
+
+    - []   : u == v、不可达、或最短路径跳数 > max_hops
+    - [e…] : 一条最短路径（边数即跳数）
+    """
+    if max_hops < 0:
+        return {(u, v): [] for u, v in pairs}
+
+    queries_by_source = defaultdict(list)
+    for u, v in pairs:
+        queries_by_source[u].append(v)
+
+    result: Dict[Tuple[Vertex, Vertex], List[Hyperedge]] = {}
+
+    for u, targets in queries_by_source.items():
+        # 仅在 Vertex 层做 BFS，单次过边 hop+1
+        dist_hops: dict[Vertex, int] = {u: 0}
+        parent: dict[Vertex, tuple[Vertex, Hyperedge] | None] = {u: None}
+        queue = deque([u])
+
+        wanted = {v for v in targets if v != u}
+        found: set[Vertex] = set()
+
+        while queue:
+            curr = queue.popleft()
+            curr_hops = dist_hops[curr]
+
+            if curr_hops >= max_hops:
+                continue
+
+            for edge in hypergraph.contained_edges.get(curr, []):
+                for nxt in edge.vertices:
+                    if nxt == curr:
+                        continue
+                    nxt_hops = curr_hops + 1
+                    if nxt_hops > max_hops:
+                        continue
+                    if nxt not in dist_hops:
+                        dist_hops[nxt] = nxt_hops
+                        parent[nxt] = (curr, edge)
+                        queue.append(nxt)
+                        if nxt in wanted:
+                            found.add(nxt)
+
+            if len(found) == len(wanted):
+                break
+
+        for v in targets:
+            if u == v:
+                result[(u, v)] = []
+                continue
+            if v not in dist_hops:
+                result[(u, v)] = []
+                continue
+
+            path: list[Hyperedge] = []
+            cur = v
+            while cur != u:
+                prev_info = parent.get(cur)
+                if prev_info is None:
+                    path = []
+                    break
+                prev, edge = prev_info
+                path.append(edge)
+                cur = prev
+            path.reverse()
+            result[(u, v)] = path
+
+    return result
+
+
+def find_shortest_hyperpaths_local_bounded(
+    hypergraph: Hypergraph,
+    pairs: List[Tuple[Vertex, Vertex]],
+    max_hops: int,
+) -> Dict[Tuple[Vertex, Vertex], List[Hyperedge]]:
+    """返回每对 (u, v) 在 max_hops 内的一条局部最短超路径（同 hypergraph_id 约束）。
+
+    - []   : u == v、不可达、或最短路径跳数 > max_hops
+    - [e…] : 一条满足同组件约束的最短路径
+    """
+    if max_hops < 0:
+        return {(u, v): [] for u, v in pairs}
+
+    queries_by_source = defaultdict(list)
+    for u, v in pairs:
+        queries_by_source[u].append(v)
+
+    result: Dict[Tuple[Vertex, Vertex], List[Hyperedge]] = {}
+
+    for u, targets in queries_by_source.items():
+        unset_component = object()
+        start_state = (u, unset_component)
+
+        dist_hops: dict[tuple[Vertex, object], int] = {start_state: 0}
+        parent: dict[tuple[Vertex, object], tuple[tuple[Vertex, object], Hyperedge] | None] = {start_state: None}
+        queue = deque([start_state])
+
+        wanted = {v for v in targets if v != u}
+        found_state: dict[Vertex, tuple[Vertex, object]] = {}
+
+        while queue:
+            curr_v, curr_comp = queue.popleft()
+            curr_hops = dist_hops[(curr_v, curr_comp)]
+
+            if curr_hops >= max_hops:
+                continue
+
+            for edge in hypergraph.contained_edges.get(curr_v, []):
+                edge_comp = edge.hypergraph_id
+                if curr_comp is not unset_component and edge_comp != curr_comp:
+                    continue
+                next_comp = edge_comp
+                for nxt in edge.vertices:
+                    if nxt == curr_v:
+                        continue
+                    next_state = (nxt, next_comp)
+                    nxt_hops = curr_hops + 1
+                    if nxt_hops > max_hops:
+                        continue
+                    if next_state in dist_hops:
+                        continue
+                    dist_hops[next_state] = nxt_hops
+                    parent[next_state] = ((curr_v, curr_comp), edge)
+                    queue.append(next_state)
+                    if nxt in wanted and nxt not in found_state:
+                        found_state[nxt] = next_state
+
+            if len(found_state) == len(wanted):
+                break
+
+        for v in targets:
+            if u == v:
+                result[(u, v)] = []
+                continue
+            terminal = found_state.get(v)
+            if terminal is None:
+                result[(u, v)] = []
+                continue
+
+            path: list[Hyperedge] = []
+            state = terminal
+            while state != start_state:
+                prev_info = parent.get(state)
+                if prev_info is None:
+                    path = []
+                    break
+                prev_state, edge = prev_info
+                path.append(edge)
+                state = prev_state
+            path.reverse()
+            result[(u, v)] = path
+
+    return result

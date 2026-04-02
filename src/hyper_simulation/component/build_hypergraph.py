@@ -17,6 +17,7 @@ from hyper_simulation.hypergraph.dependency import Node, LocalDoc, Dependency
 from hyper_simulation.hypergraph.combine import combine, calc_correfs_str, combine_links
 from hyper_simulation.utils.clean import clean_text_for_spacy
 from hyper_simulation.hypergraph.abstraction import TokenEntityAdder
+from hyper_simulation.utils.log import getLogger
 
 from hyper_simulation.hypergraph.corref import CorrefCluster, mark_corref
 from spacy.symbols import ORTH
@@ -87,8 +88,7 @@ def text_to_doc(text: str) -> Doc:
     """
     将文本转换为 spaCy Doc 对象，带 fastcoref 错误处理
     """
-    import logging
-    logger = logging.getLogger(__name__)
+    logger = getLogger(__name__)
     
     nlp = get_nlp()
     

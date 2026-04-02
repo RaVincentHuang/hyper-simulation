@@ -38,6 +38,13 @@ try:
 except Exception:
     pass
 
+def init_embedding_model():
+    if "Qwen/Qwen3-Embedding-0.6B" not in _model_cache:
+        # model = SentenceTransformer("Qwen/Qwen3-Embedding-0.6B", device="cpu")
+        model = SentenceTransformer('Qwen/Qwen3-Embedding-0.6B')
+        model.eval()
+        _model_cache["Qwen/Qwen3-Embedding-0.6B"] = model
+
 def _get_sentence_transformer() -> SentenceTransformer:
     if "Qwen/Qwen3-Embedding-0.6B" not in _model_cache:
         local_model_path = "/home/vincent/.cache/huggingface/hub/models--Qwen--Qwen3-Embedding-0.6B/snapshots/c54f2e6e80b2d7b7de06f51cec4959f6b3e03418"

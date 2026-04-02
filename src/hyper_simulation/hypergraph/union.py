@@ -8,9 +8,8 @@ from hyper_simulation.hypergraph.linguistic import QueryType, Pos, Tag, Dep, Ent
 from hyper_simulation.component.nli import get_nli_labels_batch
 from hyper_simulation.component.hyper_simulation import compute_hyper_simulation
 from hyper_simulation.utils.log import getLogger
-import logging
-
-logger = logging.getLogger(__name__)
+from hyper_simulation.component.postprocess import post_detection
+logger = getLogger(__name__)
 
 class UnionFind:
     def __init__(self, elements):
@@ -387,8 +386,8 @@ class MultiHopFusion:
         # 1. Collect all vertices and edges
         all_vertex_ids = [] 
         all_hyperedges = []
-        vertex_id_map = {}  # id(vertex) -> vertex object
-        vertex_source_map = {}  # id(vertex) -> source_index
+        vertex_id_map: Dict[int, Vertex] = {}  # id(vertex) -> vertex object
+        vertex_source_map: Dict[int, int] = {}  # id(vertex) -> source_index
         
         valid_vertex_ids = []  # 存储 valid vertex 的 id
         
@@ -407,6 +406,10 @@ class MultiHopFusion:
             self.fusion_logger.info(f"[Merge] Evidence [{i}]: {len(hg.vertices)} vertices, {len(hg.hyperedges)} edges")
             
             for vertex in hg.vertices:
+                # 为节点写入来源，供 merged hyperedge.current_node 做同源匹配。
+                for node in vertex.nodes:
+                    node.source_id = i
+
                 vid = id(vertex)  # 使用内存地址作为唯一 ID
                 vertex_id_map[vid] = vertex
                 vertex_source_map[vid] = i
@@ -477,7 +480,7 @@ class MultiHopFusion:
             try:
                 labels = get_nli_labels_batch(text_pairs)
                 for (v1_id, v2_id), label in zip(pairs_to_check, labels):
-                    if label == 'entailment': 
+                    if label == 'entailment':
                         uf.union(v1_id, v2_id)  # 使用 id 进行 union
                         nli_merge_count += 1
             except Exception as e:
@@ -506,7 +509,10 @@ class MultiHopFusion:
                 if vid in vertex_source_map:
                     new_vertex_provenance[new_id_counter].add(vertex_source_map[vid])
             
+            type_cache = vertex_id_map[group_ids[0]].type_cache if group_ids else None
             new_v = Vertex(new_id_counter, combined_nodes)
+            if type_cache:
+                new_v.type_cache = type_cache
             new_v.set_provenance(new_vertex_provenance[new_id_counter])  # 设置来源信息
             new_vertices.append(new_v)
             
@@ -561,7 +567,7 @@ class MultiHopFusion:
             self.fusion_logger.warning("[Merge] No multi-source vertices found. Fusion might be too strict or data is disjoint.")
 
         return merged_hg, new_vertex_provenance
-        
+
     def process(self, query_hg: Hypergraph, evidence_hgs: List[Hypergraph], evidence_texts: List[str]) -> Tuple[bool, str]:
         """
         Main pipeline: Merge → Simulate → Reverse Trace → Structured Context
@@ -576,11 +582,32 @@ class MultiHopFusion:
         self.consistent_logger.info(f"[Multi-hop] Evidence count: {len(evidence_hgs)}")
         
         # 1. Merge (保留 provenance)
+        import time
+        time1 = time.time()
         merged_hg, provenance = self.merge_hypergraphs(evidence_hgs)
-        
+        time2 = time.time()
+        print(f"Merge time: {time2 - time1:.2f} seconds")
         # 2. Global Simulation
         self.consistent_logger.info("[Multi-hop] Running Hyper Simulation...")
         mapping, q_map, d_map = compute_hyper_simulation(query_hg, merged_hg)
+        for q_id, d_ids in mapping.items():
+            for d_id in d_ids:
+                u = q_map[q_id]
+                v = d_map[d_id]
+                if u.is_verb() or v.is_verb():
+                    continue
+                print(f"Hyper Simulation Match: {u.text()} <-> {v.text()}")
+        
+        simulation: list[Tuple[Vertex, Vertex]] = [(u, v) for q_id, d_ids in mapping.items() for d_id in d_ids for u in [q_map[q_id]] for v in [d_map[d_id]]]
+        
+        time3 = time.time()
+        final = post_detection(query_hg, merged_hg, simulation)
+        time4 = time.time()
+        print(f"Post-processing time: {time4 - time3:.2f} seconds")
+        for u, v in final:
+            if u.is_verb() or v.is_verb():
+                continue
+            print(f"Post-processed Match: {u.text()} <-> {v.text()} [{', '.join(str(id) for id in v.get_provenance())}]")
         
         self.consistent_logger.info(f"[Multi-hop] Simulation completed: {len(mapping)} query nodes mapped")
         
@@ -621,3 +648,11 @@ class MultiHopFusion:
         self.consistent_logger.info(f"[Multi-hop] Context preview:\n{context}...")
 
         return context  # ✅ is_consistent 固定为 True
+    
+    
+    
+# query: [1, 2, 3, 4, 5, 6, 7]
+# - #1: context: [1, 2, 3]
+# - #2: context: [7, 8, 9]
+# - #3: 
+# - #4: 
