@@ -52,7 +52,15 @@ def qa_f1_score(prediction, ground_truth):
 
 
 def normalize_answer(s):
+    # 防御性编程：如果是列表，取第一个元素，或者转为字符串
+    if isinstance(s, list):
+        s = s[0] if len(s) > 0 else ""
+    if not isinstance(s, str):
+        s = str(s)
+        
     def remove_articles(text):
+        if text.strip() in ['a', 'an', 'the']:
+            return text
         return re.sub(r'\b(a|an|the)\b', ' ', text)
 
     def white_space_fix(text):
@@ -81,7 +89,29 @@ def find_entity_tags(sentence):
     return results
 
 def match(prediction, ground_truth):
+    # 1. 确保 prediction 为字符串
+    if not isinstance(prediction, str):
+        prediction = str(prediction)
+        
+    # 2. 遍历 ground_truth，防御嵌套结构
     for gt in ground_truth:
-        if gt in prediction:
-            return 1
+        if isinstance(gt, list):
+            gt = gt[0] if gt else ""
+        if not isinstance(gt, str):
+            gt = str(gt)
+            
+        # 3. 执行子串匹配 (忽略大小写)
+        if not gt:
+            continue
+            
+        pred_lower = prediction.lower()
+        gt_lower = gt.lower()
+        
+        # 对于单字母或短选项（如 "A", "1"），更严格的匹配（防止 'a' 匹配到 'cat' 等情况）
+        if len(gt) <= 2:
+            if re.search(rf'\b{re.escape(gt_lower)}\b', pred_lower):
+                return 1
+        else:
+            if gt_lower in pred_lower:
+                return 1
     return 0

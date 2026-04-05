@@ -204,6 +204,9 @@ def load_arc_data(file_path: str) -> List[Dict[str, Any]]:
 
         with jsonlines.open(path, "r") as reader:
             for item in reader:
+                # 检查是否是我们通过 rag.py 检索出来带有 paragraphs 的数据
+                paragraphs = item.get("paragraphs", [])
+                
                 choices = item.get("choices", {})
                 options_text = choices.get("text", [])
                 options_label = choices.get("label", [])
@@ -217,6 +220,10 @@ def load_arc_data(file_path: str) -> List[Dict[str, Any]]:
                 question_with_options = f"{item.get('question', '').strip()}\n\nOptions:\n{options_str}"
                 
                 answer_label = item.get("answerKey", "")  # ✅ 保留标签
+                # 兼容从 rag.py 中传过来的 answerKey 可能是列表或者是字符串的情况
+                if isinstance(answer_label, list) and len(answer_label) > 0:
+                    answer_label = answer_label[0]
+                    
                 answer_text = ""
                 if answer_label and options_label and options_text:
                     try:
@@ -225,6 +232,16 @@ def load_arc_data(file_path: str) -> List[Dict[str, Any]]:
                     except (ValueError, IndexError):
                         answer_text = answer_label
                 
+                # 如果是带检索结果的数据，我们需要把 paragraphs 塞进 context 里
+                context = []
+                supporting_flags = []
+                for p in paragraphs:
+                    title = (p.get("title") or "").strip()
+                    text = (p.get("text") or "").strip()
+                    if title or text:
+                        context.append((title, [text] if text else []))
+                        supporting_flags.append(True)
+                
                 formatted_item = {
                     "_id": item.get("id", ""),
                     "question": question_with_options,
@@ -232,8 +249,8 @@ def load_arc_data(file_path: str) -> List[Dict[str, Any]]:
                     "answer_label": answer_label,    # ✅ 答案标签（用于评估）
                     "options": options_text,
                     "option_labels": options_label,
-                    "context": [],
-                    "supporting_flags": [],
+                    "context": context,              # 包含检索回来的背景知识
+                    "supporting_flags": supporting_flags,
                 }
                 data.append(formatted_item)
 

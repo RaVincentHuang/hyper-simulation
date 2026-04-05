@@ -190,13 +190,30 @@ def build_query_instance_for_task(item: Dict[str, Any], task: str) -> QueryInsta
         )
     
     elif task == "ARC":
+        raw_label = item.get('answer_label', '')
+        ans_label = raw_label[0] if isinstance(raw_label, list) and raw_label else str(raw_label)
+        ans_text = item.get('answer', '')
+        
+        context = item.get('context', [])
+        supporting_flags = item.get('supporting_flags', [])
+        
+        data = []
+        ground_truth = []
+        
+        for idx, (title, sentences) in enumerate(context):
+            para_text = "\n".join(sentences)
+            data.append(para_text)
+            
+            is_supporting = supporting_flags[idx] if idx < len(supporting_flags) else True
+            ground_truth.append((is_supporting, para_text if is_supporting else ""))
+            
         return QueryInstance(
-            query=item['question'],
-            data=[],
+            query=item.get('question', ''),
+            data=data,
             fixed_data=[],
-            answers=[item['answer_label']],
-            ground_truth=[]
+            answers=[ans_label],
+            ground_truth=ground_truth
         )
-    
+
     else:
         raise ValueError(f"Unsupported task: {task}")

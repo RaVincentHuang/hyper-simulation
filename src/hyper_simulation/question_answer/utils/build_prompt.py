@@ -111,6 +111,7 @@ def build_prompt(question: str, context_text: str, task: str = "hotpotqa", conte
         )
     elif task == "ARC":
         prompt = ARC_BASE.format(
+            context_text=context_text,
             question=question
         )
     else:

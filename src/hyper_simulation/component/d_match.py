@@ -44,7 +44,7 @@ def query_same_type(v1: Vertex, v2: Vertex) -> bool:
     
     return False
 
-def _construct_description_from_path(path: list[list[Node]], start: Vertex, end: Vertex) -> str:
+def _construct_description_from_path(path: list[list[Node]], start_node: Node, end_node: Node) -> str:
     """
     从路径描述中构建一个字符串描述。
     这里的路径是一个节点列表，节点可以是 Vertex 或 Hyperedge。
@@ -86,23 +86,20 @@ def _construct_description_from_path(path: list[list[Node]], start: Vertex, end:
         "ECONOMIC": set(),
         "SOCIOLOGY": set(),
         "PHENOMENON": set(),
-        "ADJECTIVE": set(),
-        "ADVERB": set(),
+        # "ADJECTIVE": set(),
+        # "ADVERB": set(),
     }
     
     node_type_map: dict[Node, str] = {}
     
-    start_node = path[0][0]
-    end_node = path[-1][-1]
-    
     start_node_type = start_node.type_str()
-    if start_node_type:
+    if start_node_type and start_node_type in type_nodes_map:
         type_nodes_map[start_node_type].add(start_node)
         index = len(type_nodes_map[start_node_type])
         node_type_map[start_node] = f"{start_node_type}#{index}"
         
     end_node_type = end_node.type_str()
-    if end_node_type:
+    if end_node_type and end_node_type in type_nodes_map:
         type_nodes_map[end_node_type].add(end_node)
         index = len(type_nodes_map[end_node_type])
         node_type_map[end_node] = f"{end_node_type}#{index}"
@@ -117,7 +114,7 @@ def _construct_description_from_path(path: list[list[Node]], start: Vertex, end:
             if n in node_type_map:
                 return node_type_map[n]
             node_type = n.type_str()
-            if node_type:
+            if node_type and node_type in type_nodes_map:
                 type_nodes_map[node_type].add(n)
                 index = len(type_nodes_map[node_type])
                 node_type_map[n] = f"{node_type}#{index}"
@@ -193,14 +190,15 @@ def calc_d_match(sc1: SemanticCluster, sc2: SemanticCluster, threshold: float = 
 
         # 对每个 (v1', v2') 分配一个 index
         for index, (v1_prime, v2_prime) in enumerate(candidate_pairs):
-            paths1 = sc1.get_path_node_steps(v1, v1_prime)
-            paths2 = sc2.get_path_node_steps(v2, v2_prime)
+            path1, v1_node, v1_prime_node = sc1.get_path_node_steps(v1, v1_prime)
+            path2, v2_node, v2_prime_node = sc2.get_path_node_steps(v2, v2_prime)
 
-            for path1 in paths1:
-                for path2 in paths2:
-                    desc1 = _construct_description_from_path(path1, v1, v1_prime)
-                    desc2 = _construct_description_from_path(path2, v2, v2_prime)
-                    score_items.append((desc1, desc2, v1, v2, index))
+            if not path1 or not path2 or v1_node is None or v2_node is None or v1_prime_node is None or v2_prime_node is None:
+                continue
+
+            desc1 = _construct_description_from_path(path1, start_node=v1_node, end_node=v1_prime_node)
+            desc2 = _construct_description_from_path(path2, start_node=v2_node, end_node=v2_prime_node)
+            score_items.append((desc1, desc2, v1, v2, index))
 
     if not score_items:
         return []
@@ -305,15 +303,17 @@ def calc_d_match_batch(sc_pairs: list[tuple[SemanticCluster, SemanticCluster]], 
                     candidate_pairs.append((v1_prime, v2_prime))
 
             for index, (v1_prime, v2_prime) in enumerate(candidate_pairs):
-                paths1 = sc1.get_path_node_steps(v1, v1_prime)
-                paths2 = sc2.get_path_node_steps(v2, v2_prime)
+                path1, v1_node, v1_prime_node = sc1.get_path_node_steps(v1, v1_prime)
+                path2, v2_node, v2_prime_node = sc2.get_path_node_steps(v2, v2_prime)
 
-                for path1 in paths1:
-                    for path2 in paths2:
-                        desc1 = _construct_description_from_path(path1, v1, v1_prime)
-                        desc2 = _construct_description_from_path(path2, v2, v2_prime)
-                        score_pairs.append((desc1, desc2))
-                        score_meta.append((pair_idx, v1, v2, index))
+                if not path1 or not path2 or v1_node is None or v2_node is None or v1_prime_node is None or v2_prime_node is None:
+                    continue
+
+                desc1 = _construct_description_from_path(path1, v1_node, v1_prime_node)
+                desc2 = _construct_description_from_path(path2, v2_node, v2_prime_node)
+                print(f"D-match sentence: '{desc1}' <-> '{desc2}' for vertices '{v1.text()}' and '{v2.text()}' with index {index}")
+                score_pairs.append((desc1, desc2))
+                score_meta.append((pair_idx, v1, v2, index))
 
     if not score_pairs:
         return [[] for _ in sc_pairs]

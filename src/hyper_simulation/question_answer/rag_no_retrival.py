@@ -342,10 +342,16 @@ def run_rag_evaluation(
     
     # 🔹 11. 保存剩余 Prompts
     if save_prompts_only and prompts_buffer:
-        with jsonlines.open(prompt_save_path, 'a') as writer:  # ✅ 使用 jsonlines.open
-            for entry in prompts_buffer:
-                writer.write(entry)  # ✅ 正确调用
-        print(f"💾 已保存剩余 {len(prompts_buffer)} 条 Prompts")
+        # 如果是 load_prompts，说明这原本是一个从 .jsonl 加载的任务（如 sentli）
+        # 此时 prompt_save_path 是 data/mid_result/{method}/{task}.jsonl
+        # 我们确保用 jsonlines 追加写入
+        if prompt_save_path:
+            with jsonlines.open(prompt_save_path, 'a') as writer:
+                for entry in prompts_buffer:
+                    writer.write(entry)
+            print(f"💾 已保存剩余 {len(prompts_buffer)} 条 Prompts 到 {prompt_save_path}")
+        else:
+            print("⚠️ 提示词缓冲非空，但未设置 prompt_save_path！")
     
     # 🔹 12. 保存剩余结果
     if new_results_buffer:

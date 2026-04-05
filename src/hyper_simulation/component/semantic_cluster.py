@@ -201,55 +201,55 @@ class SemanticCluster:
         """
         if self._hyperedge_groups is not None and self._hyperedge_to_group is not None:
             return self._hyperedge_groups, self._hyperedge_to_group
-        
-        # 构建 root -> hyperedges 的映射
-        root_to_hyperedges: dict[Node, list[Hyperedge]] = {}
-        roots = set()
-        
-        for he in self.hyperedges:
-            root = he.current_node(he.root)
-            if root is None:
-                continue
-            if root not in root_to_hyperedges:
-                root_to_hyperedges[root] = []
-            root_to_hyperedges[root].append(he)
-            roots.add(root)
-        
-        # Union-Find 用于连接有 head 关联的 roots
-        parent: dict[Node, Node] = {}
-        
-        def find(x: Node) -> Node:
-            if x not in parent:
-                parent[x] = x
-            if parent[x] != x:
-                parent[x] = find(parent[x])
-            return parent[x]
-        
-        def union(x: Node, y: Node) -> None:
-            px, py = find(x), find(y)
-            if px != py:
-                parent[px] = py
-        
-        # 连接通过 head 关联的 roots
-        for root in roots:
-            current = root
-            visited = set()
-            while current is not None and current not in visited:
+
+        # 按“最终根（沿 head 上溯到尽头）”分组。
+        # group 定义：不同 hyperedge 的 root 若能追溯到同一个最终根，则属于同一 group。
+        ultimate_root_cache: dict[Node, Node] = {}
+
+        def get_ultimate_root(start: Node) -> Node:
+            # 命中缓存时 O(1) 返回；未命中时在上溯过程中做路径压缩。
+            if start in ultimate_root_cache:
+                return ultimate_root_cache[start]
+
+            current = start
+            visited: set[Node] = set()
+            trace: list[Node] = []
+
+            while True:
+                # 关键优化：上溯途中命中缓存节点可立即收敛。
+                if current in ultimate_root_cache:
+                    ultimate = ultimate_root_cache[current]
+                    break
+
+                # 防止环/自环导致死循环。
+                if current in visited:
+                    ultimate = current
+                    break
+
                 visited.add(current)
-                if current.head is not None and current.head in roots:
-                    union(root, current.head)
-                current = current.head
-        
-        # 按 component 分组
+                trace.append(current)
+
+                head = current.head
+                if head is None or head == current:
+                    ultimate = current
+                    break
+
+                current = head
+
+            # 路径压缩：将本次路径上的节点全部缓存到同一个最终根。
+            for node in trace:
+                ultimate_root_cache[node] = ultimate
+            return ultimate
+
         groups_dict: dict[Node, list[Hyperedge]] = {}
         for he in self.hyperedges:
             root = he.current_node(he.root)
             if root is None:
                 continue
-            comp = find(root)
-            if comp not in groups_dict:
-                groups_dict[comp] = []
-            groups_dict[comp].append(he)
+            ultimate_root = get_ultimate_root(root)
+            if ultimate_root not in groups_dict:
+                groups_dict[ultimate_root] = []
+            groups_dict[ultimate_root].append(he)
         
         groups = list(groups_dict.values())
         
@@ -262,69 +262,183 @@ class SemanticCluster:
         self._hyperedge_groups = groups
         self._hyperedge_to_group = he_to_group
         
-        # ===== 新增：计算每个 group 内任意两个节点的最近根 =====
+        # ===== 新增：计算每个 group 内任意两个节点的最近根（带缓存，避免冗余计算） =====
         node_pairs_to_roots: dict[tuple[Node, Node], Node] = {}
         for group in groups:
-            # 收集 group 内的所有 nodes
-            group_nodes = set()
+            # 预计算 node -> 所属 hyperedge roots（一个 node 可能出现于多个 hyperedges）
+            node_to_roots: dict[Node, set[Node]] = {}
+            group_nodes: set[Node] = set()
             for he in group:
+                root = he.current_node(he.root)
+                if root is None:
+                    continue
                 for vertex in he.vertices:
                     node = he.current_node(vertex)
-                    if node is not None:
-                        group_nodes.add(node)
-            
-            # 对每一对 nodes 计算最近根
+                    if node is None:
+                        continue
+                    group_nodes.add(node)
+                    if node not in node_to_roots:
+                        node_to_roots[node] = set()
+                    node_to_roots[node].add(root)
+
+            # root 祖先链缓存：root -> [root, root.head, ...]
+            root_chain_cache: dict[Node, list[Node]] = {}
+            # root 深度缓存：root -> {ancestor: distance_from_root}
+            root_depth_cache: dict[Node, dict[Node, int]] = {}
+            # root-pair 最近公共根缓存
+            root_pair_nearest_cache: dict[tuple[Node, Node], Node | None] = {}
+
+            def get_root_chain(root: Node) -> list[Node]:
+                if root in root_chain_cache:
+                    return root_chain_cache[root]
+                chain: list[Node] = []
+                current = root
+                visited: set[Node] = set()
+                while current is not None and current not in visited:
+                    visited.add(current)
+                    chain.append(current)
+                    current = current.head
+                root_chain_cache[root] = chain
+                return chain
+
+            def get_root_depth_map(root: Node) -> dict[Node, int]:
+                if root in root_depth_cache:
+                    return root_depth_cache[root]
+                depth_map: dict[Node, int] = {}
+                for depth, ancestor in enumerate(get_root_chain(root)):
+                    depth_map[ancestor] = depth
+                root_depth_cache[root] = depth_map
+                return depth_map
+
+            def nearest_common_root(root1: Node, root2: Node) -> Node | None:
+                if root1 == root2:
+                    return root1
+                key = (root1, root2)
+                if key in root_pair_nearest_cache:
+                    return root_pair_nearest_cache[key]
+
+                ancestors1 = get_root_depth_map(root1)
+                nearest: Node | None = None
+                for ancestor in get_root_chain(root2):
+                    if ancestor in ancestors1:
+                        nearest = ancestor
+                        break
+
+                root_pair_nearest_cache[(root1, root2)] = nearest
+                root_pair_nearest_cache[(root2, root1)] = nearest
+                return nearest
+
             group_nodes_list = list(group_nodes)
             for i in range(len(group_nodes_list)):
                 for j in range(i + 1, len(group_nodes_list)):
                     node1 = group_nodes_list[i]
                     node2 = group_nodes_list[j]
-                    
-                    # 找出两个节点所属的 hyperedges
-                    he1 = None
-                    he2 = None
-                    root1 = None
-                    root2 = None
-                    
-                    for he in group:
-                        for vertex in he.vertices:
-                            if he.current_node(vertex) == node1 and he1 is None:
-                                he1 = he
-                                root1 = he.current_node(he.root)
-                            if he.current_node(vertex) == node2 and he2 is None:
-                                he2 = he
-                                root2 = he.current_node(he.root)
-                    
-                    if root1 is None or root2 is None:
+
+                    roots1 = node_to_roots.get(node1, set())
+                    roots2 = node_to_roots.get(node2, set())
+                    if not roots1 or not roots2:
                         continue
-                    
-                    # 如果两个节点在同一个 hyperedge 内（即有相同的 root）
-                    if root1 == root2:
-                        node_pairs_to_roots[(node1, node2)] = root1
-                        node_pairs_to_roots[(node2, node1)] = root1
-                    else:
-                        # 计算 root1 和 root2 的最近公共根
-                        # 收集 root1 的所有 ancestors
-                        ancestors1 = set()
-                        node = root1
-                        visited = set()
-                        while node is not None and node not in visited:
-                            visited.add(node)
-                            ancestors1.add(node)
-                            node = node.head
-                        
-                        # 从 root2 开始遍历，找第一个在 ancestors1 中的节点
-                        node = root2
-                        visited = set()
-                        while node is not None and node not in visited:
-                            visited.add(node)
-                            if node in ancestors1:
-                                node_pairs_to_roots[(node1, node2)] = node
-                                node_pairs_to_roots[(node2, node1)] = node
-                                break
-                            node = node.head
+
+                    best_root: Node | None = None
+                    best_score: int | None = None
+
+                    # 仅在 root 组合层面计算一次最近公共根，并复用缓存
+                    for root1 in roots1:
+                        depth1 = get_root_depth_map(root1)
+                        for root2 in roots2:
+                            common = nearest_common_root(root1, root2)
+                            if common is None:
+                                continue
+                            depth2 = get_root_depth_map(root2)
+                            score = depth1.get(common, 10**9) + depth2.get(common, 10**9)
+                            if best_score is None or score < best_score:
+                                best_score = score
+                                best_root = common
+
+                    if best_root is not None:
+                        node_pairs_to_roots[(node1, node2)] = best_root
+                        node_pairs_to_roots[(node2, node1)] = best_root
         
         self._node_pair_nearest_root = node_pairs_to_roots
+        
+        # ===== 新增：预计算所有 Vertex 的 Group 集合 =====
+        vertex_to_groups: dict[Vertex, set[int]] = {}
+        for he in self.hyperedges:
+            group_idx = he_to_group.get(he)
+            if group_idx is None:
+                continue
+            
+            for vertex in he.vertices:
+                if vertex not in vertex_to_groups:
+                    vertex_to_groups[vertex] = set()
+                vertex_to_groups[vertex].add(group_idx)
+        
+        self._vertex_to_groups_cache = vertex_to_groups
+        
+        # ===== 新增：预计算所有 Group 对之间的最短路径 =====
+        # 构建 Group 邻接表（基于 Node 桥梁）
+        def get_group_nodes(group: list[Hyperedge]) -> set[Node]:
+            """获取 group 中所有的 nodes"""
+            nodes = set()
+            for he in group:
+                for vertex in he.vertices:
+                    node = he.current_node(vertex)
+                    if node is not None:
+                        nodes.add(node)
+            return nodes
+        
+        # 计算 Group 间的桥梁
+        group_adjacency: dict[int, set[int]] = {}
+        inter_group_bridges: dict[tuple[int, int], set[Node]] = {}
+        
+        for i in range(len(groups)):
+            for j in range(i + 1, len(groups)):
+                nodes_i = get_group_nodes(groups[i])
+                nodes_j = get_group_nodes(groups[j])
+                bridges = nodes_i & nodes_j
+                
+                if bridges:
+                    group_adjacency.setdefault(i, set()).add(j)
+                    group_adjacency.setdefault(j, set()).add(i)
+                    inter_group_bridges[(i, j)] = bridges
+                    inter_group_bridges[(j, i)] = bridges
+        
+        self._inter_group_bridge_cache = inter_group_bridges
+        
+        # 计算所有 Group 对之间的最短路径（使用 Floyd-Warshall 或 BFS）
+        # 这里使用字典进行 All-Pairs-Shortest-Paths 的计算
+        inter_group_distances: dict[tuple[int, int], list[int]] = {}
+        
+        for start_group in range(len(groups)):
+            # 对每个起始 Group，用 BFS 计算到所有其他 Group 的最短路
+            dist: dict[int, int] = {start_group: 0}
+            parent: dict[int, int | None] = {start_group: None}
+            queue = deque([start_group])
+            
+            while queue:
+                current = queue.popleft()
+                for neighbor in group_adjacency.get(current, set()):
+                    if neighbor not in dist:
+                        dist[neighbor] = dist[current] + 1
+                        parent[neighbor] = current
+                        queue.append(neighbor)
+            
+            # 回溯所有到达的 Group，构建最短路
+            for end_group, d in dist.items():
+                if end_group == start_group:
+                    inter_group_distances[(start_group, end_group)] = [start_group]
+                else:
+                    # 从 end_group 回溯到 start_group
+                    path = []
+                    current = end_group
+                    while current is not None:
+                        path.append(current)
+                        current = parent.get(current)
+                    path.reverse()
+                    inter_group_distances[(start_group, end_group)] = path
+        
+        self._inter_group_distances_cache = inter_group_distances
+        
         return groups, he_to_group
     
     # ====== 步骤2: 找 Groups 之间的交集 ======
@@ -365,7 +479,7 @@ class SemanticCluster:
         return intersections
     
     # ====== 新增：获取两个节点在 group 内的最近根 ======
-    def get_nearest_root_for_node_pair(self, node1: Node, node2: Node) -> Node | None:
+    def _get_nearest_root_for_node_pair(self, node1: Node, node2: Node) -> Node | None:
         """
         获取两个节点在其所在 group 内的最近根。
         
@@ -386,520 +500,697 @@ class SemanticCluster:
         
         return None
     
-    # ====== 步骤3: 找 Groups 之间的路径（考虑多个交集） ======
-    def _find_shortest_inter_group_paths(self, g_from: int, g_to: int,
-                                        groups: list[list[Hyperedge]],
-                                        intersections: dict[tuple[int, int], set[Node]]
-                                        ) -> list[tuple[set[Node], set[Node]]]:
+    # ====== 新增：建立 Vertex 与 Group 的映射 ======
+    def _build_vertex_to_groups(self) -> dict[Vertex, set[int]]:
         """
-        找从 g_from 到 g_to 的最短路径（通过 groups）。
-        考虑中间可能有多条路径，取最短的组合。
+        建立 Vertex 与 Group 的映射。
+        一个 Vertex 可能出现在多个 hyperedges 中，因此可能属于多个 Group。
         
         返回：
-        - list[tuple[set[Node], set[Node]]]: 每项是 (source_bridge, dest_bridge)
-          其中 source_bridge 是 g_from 与中间 group 的交集，
-          dest_bridge 是中间 group 与 g_to 的交集
+        - dict[Vertex, set[int]]: 每个 Vertex 映射到它所属的 Group 索引集合
         """
-        if g_from == g_to:
-            return [(set(), set())]  # 同一 group，无需桥梁
+        # 确保缓存已初始化
+        self._build_hyperedge_groups()
         
-        # BFS 找最短路径
-        queue = deque([(g_from, [])])  # (current_group, path_so_far)
-        visited = {g_from}
-        found_paths = []
-        min_length = float('inf')
+        if not hasattr(self, '_vertex_to_groups_cache'):
+            self._vertex_to_groups_cache = {}
         
-        while queue:
-            current, path = queue.popleft()
-            
-            if current == g_to:
-                if len(path) < min_length:
-                    min_length = len(path)
-                    found_paths = [path]
-                elif len(path) == min_length:
-                    found_paths.append(path)
-                continue
-            
-            # 剪枝：如果当前路径已经比最短路径长，跳过
-            if len(path) >= min_length:
-                continue
-            
-            # 探索相邻的 groups（有交集的 groups）
-            for (g1, g2), intersection in intersections.items():
-                if g1 == current and g2 not in visited:
-                    new_path = path + [(current, g2, intersection)]
-                    queue.append((g2, new_path))
-                    visited.add(g2)
-                elif g2 == current and g1 not in visited:
-                    new_path = path + [(current, g1, intersection)]
-                    queue.append((g1, new_path))
-                    visited.add(g1)
-        
-        # 将路径转换为 bridges 形式
-        result: list[tuple[set[Node], set[Node]]] = []
-        for path in found_paths:
-            if not path:  # g_from == g_to
-                result.append((set(), set()))
-            else:
-                # path 的每一项是 (from_group, to_group, intersection)
-                # 我们需要提取 from_group 与交集的部分，以及 to_group 与交集的部分
-                # 简化：对于每一条过渡路径，我们取所有交集中最短的
-                bridges = [inter for _, _, inter in path]
-                # 找最短的组合（这里简化为直接使用所有交集）
-                result.append((bridges[0] if bridges else set(), bridges[-1] if bridges else set()))
-        
-        return result if result else [(set(), set())]
+        return self._vertex_to_groups_cache
     
-    # ====== 步骤4: 为两个顶点构造完整的路径序列 ======
-    def _construct_full_sequences(self, v1: Vertex, v2: Vertex,
-                                    groups: list[list[Hyperedge]]
-                                    ) -> list[list[Node]]:
+    # ====== 新增：获取一个 Vertex 所属的 Group 集合 ======
+    def _get_vertex_groups(self, v: Vertex) -> set[int]:
         """
-        为两个顶点构造完整的路径序列。
+        获取一个 Vertex 所属的所有 Group 索引。
         
-        逻辑：
-        1. 同一 group：直接调用 _construct_path_within_group
-        2. 不同 groups：
-           - 调用 _construct_path_across_groups 获得大步序列 [(node_a, group_b, node_b), ...]
-           - 对每个大步 (node_a, group_b, node_b)，调用 _construct_path_within_group(node_a, node_b, groups[group_b])
-           - 拼接所有小步路径
+        参数：
+        - v: 要查询的 Vertex
+        
+        返回：
+        - set[int]: 该 Vertex 所属的 Group 索引集合，如果不属于任何 Group 则为空集
         """
-        logger = getLogger("semantic_cluster")
-        
-        # 找出 v1 和 v2 所在的 hyperedges 和 groups
-        hyperedges_v1 = [he for he in self.hyperedges if v1 in he.vertices]
-        hyperedges_v2 = [he for he in self.hyperedges if v2 in he.vertices]
-        
-        if not hyperedges_v1 or not hyperedges_v2:
-            return []
-        
-        _, he_to_group = self._build_hyperedge_groups()
-        intersections = self._find_group_intersections()
-        
-        sequences = []
-        
-        # 枚举所有可能的 (he_v1, he_v2) 组合
-        for he_v1 in hyperedges_v1:
-            node_v1 = he_v1.current_node(v1)
-            if node_v1 is None:
-                continue
-            
-            g_v1 = he_to_group.get(he_v1)
-            if g_v1 is None:
-                continue
-            
-            for he_v2 in hyperedges_v2:
-                node_v2 = he_v2.current_node(v2)
-                if node_v2 is None:
-                    continue
-                
-                g_v2 = he_to_group.get(he_v2)
-                if g_v2 is None:
-                    continue
-                
-                # 情况1：同一 group 内
-                if g_v1 == g_v2:
-                    path = self._construct_path_within_group(node_v1, node_v2, groups[g_v1])
-                    if path:
-                        sequences.append(path)
-                else:
-                    # 情况2：不同 groups
-                    big_step_sequences = self._construct_path_across_groups(
-                        node_v1, node_v2, g_v1, g_v2, groups, intersections
-                    )
-                    
-                    # 对每个大步序列，填充小步
-                    for big_steps in big_step_sequences:
-                        full_path = []
-                        
-                        # 遍历大步序列中的每一个大步
-                        for step_idx, (start_node, group_idx, end_node) in enumerate(big_steps):
-                            # 调用 _construct_path_within_group 获得小步路径
-                            small_path = self._construct_path_within_group(start_node, end_node, groups[group_idx])
-                            
-                            if small_path is None:
-                                logger.debug(f"[_construct_full_sequences] Failed to construct path in group {group_idx}")
-                                break  # 这个大步序列无法完成，跳过
-                            
-                            # 添加小步路径（避免重复第一个节点，除了第一步）
-                            if not full_path:
-                                full_path.extend(small_path)
-                            else:
-                                full_path.extend(small_path[1:])
-                        else:
-                            # 所有大步都成功完成
-                            if full_path:
-                                sequences.append(full_path)
-        
-        return sequences
+        vertex_to_groups = self._build_vertex_to_groups()
+        return vertex_to_groups.get(v, set())
     
-    # ====== 辅助：同 group 内的路径构造 ======
-    def _construct_path_within_group(self, node_v1: Node, node_v2: Node,
-                                      group: list[Hyperedge]) -> list[Node] | None:
+    # ====== 新增：构建 Group 间 Node 桥梁的图 ======
+    def _build_inter_group_bridge_map(self) -> dict[tuple[int, int], set[Node]]:
         """
-        构造同一 group 内两个 nodes 的路径。
-        使用该 group 内的最近公共根进行追溯。
+        构建 Group 之间的 Node 桥梁映射。
+        两个 Group 之间的桥梁是那些在两个 Group 中都出现的 Node。
+        
+        返回：
+        - dict[tuple[int, int], set[Node]]: key=(g1, g2)，value=g1 与 g2 之间的 Node 桥梁集合
         """
-        logger = getLogger("semantic_cluster")
+        # 确保缓存已初始化
+        self._build_hyperedge_groups()
         
-        # 获取这两个 nodes 的最近公共根（已缓存）
-        nearest_root = self.get_nearest_root_for_node_pair(node_v1, node_v2)
-        if nearest_root is None:
-            logger.debug(f"[_construct_path_within_group] No common root for '{node_v1.text}' and '{node_v2.text}'")
-            return None
+        if not hasattr(self, '_inter_group_bridge_cache'):
+            self._inter_group_bridge_cache = {}
         
-        # 从 node_v1 追溯到 nearest_root
-        path_v1_to_root = []
-        current = node_v1
-        visited = set()
-        while current is not None and current not in visited:
-            visited.add(current)
-            path_v1_to_root.append(current)
-            if current == nearest_root:
-                break
-            current = current.head
-        
-        if not path_v1_to_root or path_v1_to_root[-1] != nearest_root:
-            logger.debug(f"[_construct_path_within_group] Failed to trace node_v1 to root")
-            return None
-        
-        # 从 node_v2 追溯到 nearest_root
-        path_v2_to_root = []
-        current = node_v2
-        visited = set()
-        while current is not None and current not in visited:
-            visited.add(current)
-            path_v2_to_root.append(current)
-            if current == nearest_root:
-                break
-            current = current.head
-        
-        if not path_v2_to_root or path_v2_to_root[-1] != nearest_root:
-            logger.debug(f"[_construct_path_within_group] Failed to trace node_v2 to root")
-            return None
-        
-        # 合并路径：v1 → ... → root ← ... ← v2
-        # path_v2_to_root 需要反向，且去掉最后的 root（避免重复）
-        path_v2_to_root_reversed = path_v2_to_root[:-1]
-        path_v2_to_root_reversed.reverse()
-        
-        full_path = path_v1_to_root + path_v2_to_root_reversed
-        return full_path if full_path else None
+        return self._inter_group_bridge_cache
     
-    # ====== 辅助：跨 groups 的路径构造 ======
-    def _construct_path_across_groups(self, node_v1: Node, node_v2: Node,
-                                    g_v1: int, g_v2: int,
-                                    groups: list[list[Hyperedge]],
-                                    intersections: dict[tuple[int, int], set[Node]]
-                                    ) -> list[list[tuple[Node, int, Node]]]:
+    # ====== 新增：找两个 Group 之间的最短路径 ======
+    def _find_shortest_group_path(self, g1: int, g2: int) -> list[int]:
         """
-        构造跨越多个 groups 的大步序列。
+        找两个 Group 之间的最短路径（基于 Node 桥梁）。
         
-        返回值：list[list[tuple[Node, int, Node]]]，表示多条大步路径
-        - 最外层 list：多条路径
-        - 中间层 list：单条路径的大步序列
-        - 内层 tuple：(start_node, group_index, end_node)，表示从 start_node 出发，经过 group_index，到达 end_node
+        参数：
+        - g1, g2: 起始和目标 Group 索引
         
-        策略：
-        1. 用 BFS 找 groups 之间的所有最短路径（group 序列）
-        2. 对每条 group 序列，对每个相邻 group 的交集做笛卡尔积，枚举所有桥梁组合
-        3. 返回所有大步序列（由上层方法填充小步）
+        返回：
+        - list[int]: 从 g1 到 g2 的最短 Group 路径，例如 [g1, ..., g2]
+              如果两个 Group 不连通，返回空列表
         """
-        logger = getLogger("semantic_cluster")
-
-        # 找 groups 之间的所有最短路径（group 序列）
-        group_paths = self._find_all_shortest_inter_group_paths_bfs(g_v1, g_v2, intersections)
-
-        if not group_paths:
-            logger.debug(f"[_construct_path_across_groups] No path between group {g_v1} and {g_v2}")
-            return []
-
-        all_big_step_sequences: list[list[tuple[Node, int, Node]]] = []
-
-        for group_path in group_paths:
-            if len(group_path) < 2:
-                continue
-
-            # 收集每个相邻 group 的交集节点列表，后续做笛卡尔积
-            bridge_candidates_per_hop: list[list[Node]] = []
-            valid_group_path = True
-            for i in range(len(group_path) - 1):
-                g_curr = group_path[i]
-                g_next = group_path[i + 1]
-                inter_key = (g_curr, g_next) if (g_curr, g_next) in intersections else (g_next, g_curr)
-                bridge_nodes = intersections.get(inter_key)
-                if not bridge_nodes:
-                    valid_group_path = False
-                    break
-                bridge_candidates_per_hop.append(list(bridge_nodes))
-
-            if not valid_group_path or not bridge_candidates_per_hop:
-                continue
-
-            # 枚举交集组合：例如 [w1,w2] x [w3,w4]
-            for bridge_combo in product(*bridge_candidates_per_hop):
-                big_steps: list[tuple[Node, int, Node]] = []
-
-                # 第一步：(node_v1, group_path[0], bridge_combo[0])
-                big_steps.append((node_v1, group_path[0], bridge_combo[0]))
-
-                # 中间步：(bridge_combo[i-1], group_path[i], bridge_combo[i])
-                for i in range(1, len(bridge_combo)):
-                    big_steps.append((bridge_combo[i - 1], group_path[i], bridge_combo[i]))
-
-                # 最后一步：(bridge_combo[-1], group_path[-1], node_v2)
-                big_steps.append((bridge_combo[-1], group_path[-1], node_v2))
-
-                all_big_step_sequences.append(big_steps)
-
-        return all_big_step_sequences
-
-    def _find_all_shortest_inter_group_paths_bfs(self, g_from: int, g_to: int,
-                                                intersections: dict[tuple[int, int], set[Node]]
-                                                ) -> list[list[int]]:
-        """
-        用 BFS 返回从 g_from 到 g_to 的所有最短 group 路径。
-        """
-        if g_from == g_to:
-            return [[g_from]]
-
-        # 构建 group 邻接表
-        adjacency: dict[int, set[int]] = {}
-        for g1, g2 in intersections.keys():
-            adjacency.setdefault(g1, set()).add(g2)
-
-        # BFS 计算最短距离
-        dist: dict[int, int] = {g_from: 0}
-        queue = deque([g_from])
-        while queue:
-            current = queue.popleft()
-            for nxt in adjacency.get(current, set()):
-                if nxt not in dist:
-                    dist[nxt] = dist[current] + 1
-                    queue.append(nxt)
-
-        if g_to not in dist:
-            return []
-
-        shortest_len = dist[g_to]
-
-        # 反向回溯所有最短路径
-        all_paths: list[list[int]] = []
-
-        def dfs(node: int, path: list[int]) -> None:
-            if node == g_from:
-                all_paths.append(path[::-1])
-                return
-
-            for prev in adjacency.get(node, set()):
-                if prev in dist and dist[prev] == dist[node] - 1:
-                    dfs(prev, path + [prev])
-
-        dfs(g_to, [g_to])
-
-        # 安全过滤：仅保留最短长度路径
-        return [p for p in all_paths if len(p) - 1 == shortest_len]
-    
-    # ====== 辅助：BFS 找 groups 间最短路径 ======
-    def _find_shortest_inter_group_path_bfs(self, g_from: int, g_to: int,
-                                            intersections: dict[tuple[int, int], set[Node]]
-                                            ) -> list[int]:
-        """
-        用 BFS 找从 g_from 到 g_to 的最短 group 路径。
-        返回 group 索引序列。
-        """
-        if g_from == g_to:
-            return [g_from]
+        if g1 == g2:
+            return [g1]
         
-        queue = deque([(g_from, [g_from])])
-        visited = {g_from}
+        # 确保缓存已初始化
+        self._build_hyperedge_groups()
         
-        while queue:
-            current, path = queue.popleft()
-            
-            if current == g_to:
-                return path
-            
-            # 探索相邻 groups（通过交集）
-            for (g1, g2) in intersections.keys():
-                if g1 == current and g2 not in visited:
-                    queue.append((g2, path + [g2]))
-                    visited.add(g2)
-                elif g2 == current and g1 not in visited:
-                    queue.append((g1, path + [g1]))
-                    visited.add(g1)
+        # 直接从预计算的缓存中读取
+        if hasattr(self, '_inter_group_distances_cache'):
+            return self._inter_group_distances_cache.get((g1, g2), [])
         
         return []
     
-    # ====== 步骤5: 将路径转换为字符串 ======
-    def _path_to_string(self, path: list[Node]) -> tuple[str, int]:
+    # ====== 新增：找最近的 Group 对 ======
+    def _find_closest_group_pair(self, v1_groups: set[int], v2_groups: set[int]) -> tuple[int, int, list[int]] | None:
         """
-        将一条 Node 路径转换为字符串描述和长度。
+        找两个 Vertex v1, v2 各自所属的 Group 中距离最近的一对。
+        
+        参数：
+        - v1_groups: v1 所属的 Group 索引集合
+        - v2_groups: v2 所属的 Group 索引集合
         
         返回：
-        - (description: str, length: int)
+        - 如果找到，返回 (g1, g2, path) 其中 path 是从 g1 到 g2 的最短路径
+        - 如果找不到，返回 None
         """
-        if not path:
-            return "", 0
+        if not v1_groups or not v2_groups:
+            return None
         
-        # 简化实现：直接拼接节点文本
-        node_texts = []
-        for node in path:
-            if hasattr(node, 'text'):
-                node_texts.append(node.text)
-            else:
-                node_texts.append(str(node))
+        # 特殊情况：两个 Vertex 属于同一 Group
+        common_groups = v1_groups & v2_groups
+        if common_groups:
+            g = next(iter(common_groups))
+            return (g, g, [g])
         
-        description = " ".join(node_texts)
-        return description, len(path)
+        # 确保缓存已初始化
+        self._build_hyperedge_groups()
+        
+        # 从预计算的缓存中查找最短路径
+        shortest_path: list[int] | None = None
+        best_length = float('inf')
+        best_pair: tuple[int, int] | None = None
+        
+        if hasattr(self, '_inter_group_distances_cache'):
+            distances = self._inter_group_distances_cache
+            
+            for g1 in v1_groups:
+                for g2 in v2_groups:
+                    path = distances.get((g1, g2), [])
+                    if path and len(path) < best_length:
+                        best_length = len(path)
+                        best_pair = (g1, g2)
+                        shortest_path = path
+        
+        if best_pair is None or shortest_path is None:
+            return None
+        
+        return (best_pair[0], best_pair[1], shortest_path)
+    
+    # ====== 步骤3: 找 Groups 之间的路径（考虑多个交集） ======
+    # def _find_shortest_inter_group_paths(self, g_from: int, g_to: int,
+    #                                     groups: list[list[Hyperedge]],
+    #                                     intersections: dict[tuple[int, int], set[Node]]
+    #                                     ) -> list[tuple[set[Node], set[Node]]]:
+    #     """
+    #     找从 g_from 到 g_to 的最短路径（通过 groups）。
+    #     考虑中间可能有多条路径，取最短的组合。
+        
+    #     返回：
+    #     - list[tuple[set[Node], set[Node]]]: 每项是 (source_bridge, dest_bridge)
+    #       其中 source_bridge 是 g_from 与中间 group 的交集，
+    #       dest_bridge 是中间 group 与 g_to 的交集
+    #     """
+    #     if g_from == g_to:
+    #         return [(set(), set())]  # 同一 group，无需桥梁
+        
+    #     # BFS 找最短路径
+    #     queue = deque([(g_from, [])])  # (current_group, path_so_far)
+    #     visited = {g_from}
+    #     found_paths = []
+    #     min_length = float('inf')
+        
+    #     while queue:
+    #         current, path = queue.popleft()
+            
+    #         if current == g_to:
+    #             if len(path) < min_length:
+    #                 min_length = len(path)
+    #                 found_paths = [path]
+    #             elif len(path) == min_length:
+    #                 found_paths.append(path)
+    #             continue
+            
+    #         # 剪枝：如果当前路径已经比最短路径长，跳过
+    #         if len(path) >= min_length:
+    #             continue
+            
+    #         # 探索相邻的 groups（有交集的 groups）
+    #         for (g1, g2), intersection in intersections.items():
+    #             if g1 == current and g2 not in visited:
+    #                 new_path = path + [(current, g2, intersection)]
+    #                 queue.append((g2, new_path))
+    #                 visited.add(g2)
+    #             elif g2 == current and g1 not in visited:
+    #                 new_path = path + [(current, g1, intersection)]
+    #                 queue.append((g1, new_path))
+    #                 visited.add(g1)
+        
+    #     # 将路径转换为 bridges 形式
+    #     result: list[tuple[set[Node], set[Node]]] = []
+    #     for path in found_paths:
+    #         if not path:  # g_from == g_to
+    #             result.append((set(), set()))
+    #         else:
+    #             # path 的每一项是 (from_group, to_group, intersection)
+    #             # 我们需要提取 from_group 与交集的部分，以及 to_group 与交集的部分
+    #             # 简化：对于每一条过渡路径，我们取所有交集中最短的
+    #             bridges = [inter for _, _, inter in path]
+    #             # 找最短的组合（这里简化为直接使用所有交集）
+    #             result.append((bridges[0] if bridges else set(), bridges[-1] if bridges else set()))
+        
+    #     return result if result else [(set(), set())]
+    
+    # ====== 步骤4: 为两个顶点构造完整的路径序列 ======
+    # def _construct_full_sequences(self, v1: Vertex, v2: Vertex,
+    #                                 groups: list[list[Hyperedge]]
+    #                                 ) -> list[list[Node]]:
+    #     """
+    #     为两个顶点构造完整的路径序列。
+        
+    #     逻辑：
+    #     1. 同一 group：直接调用 _construct_path_within_group
+    #     2. 不同 groups：
+    #        - 调用 _construct_path_across_groups 获得大步序列 [(node_a, group_b, node_b), ...]
+    #        - 对每个大步 (node_a, group_b, node_b)，调用 _construct_path_within_group(node_a, node_b, groups[group_b])
+    #        - 拼接所有小步路径
+    #     """
+    #     logger = getLogger("semantic_cluster")
+        
+    #     # 找出 v1 和 v2 所在的 hyperedges 和 groups
+    #     hyperedges_v1 = [he for he in self.hyperedges if v1 in he.vertices]
+    #     hyperedges_v2 = [he for he in self.hyperedges if v2 in he.vertices]
+        
+    #     if not hyperedges_v1 or not hyperedges_v2:
+    #         return []
+        
+    #     _, he_to_group = self._build_hyperedge_groups()
+    #     intersections = self._find_group_intersections()
+        
+    #     sequences = []
+        
+    #     # 枚举所有可能的 (he_v1, he_v2) 组合
+    #     for he_v1 in hyperedges_v1:
+    #         node_v1 = he_v1.current_node(v1)
+    #         if node_v1 is None:
+    #             continue
+            
+    #         g_v1 = he_to_group.get(he_v1)
+    #         if g_v1 is None:
+    #             continue
+            
+    #         for he_v2 in hyperedges_v2:
+    #             node_v2 = he_v2.current_node(v2)
+    #             if node_v2 is None:
+    #                 continue
+                
+    #             g_v2 = he_to_group.get(he_v2)
+    #             if g_v2 is None:
+    #                 continue
+                
+    #             # 情况1：同一 group 内
+    #             if g_v1 == g_v2:
+    #                 path = self._construct_path_within_group(node_v1, node_v2, groups[g_v1])
+    #                 if path:
+    #                     sequences.append(path)
+    #             else:
+    #                 # 情况2：不同 groups
+    #                 big_step_sequences = self._construct_path_across_groups(
+    #                     node_v1, node_v2, g_v1, g_v2, groups, intersections
+    #                 )
+                    
+    #                 # 对每个大步序列，填充小步
+    #                 for big_steps in big_step_sequences:
+    #                     full_path = []
+                        
+    #                     # 遍历大步序列中的每一个大步
+    #                     for step_idx, (start_node, group_idx, end_node) in enumerate(big_steps):
+    #                         # 调用 _construct_path_within_group 获得小步路径
+    #                         small_path = self._construct_path_within_group(start_node, end_node, groups[group_idx])
+                            
+    #                         if small_path is None:
+    #                             logger.debug(f"[_construct_full_sequences] Failed to construct path in group {group_idx}")
+    #                             break  # 这个大步序列无法完成，跳过
+                            
+    #                         # 添加小步路径（避免重复第一个节点，除了第一步）
+    #                         if not full_path:
+    #                             full_path.extend(small_path)
+    #                         else:
+    #                             full_path.extend(small_path[1:])
+    #                     else:
+    #                         # 所有大步都成功完成
+    #                         if full_path:
+    #                             sequences.append(full_path)
+        
+    #     return sequences
+    
+    # ====== 辅助：同 group 内的路径构造 ======
+    # def _construct_path_within_group(self, node_v1: Node, node_v2: Node,
+    #                                   group: list[Hyperedge]) -> list[Node] | None:
+    #     """
+    #     构造同一 group 内两个 nodes 的路径。
+    #     使用该 group 内的最近公共根进行追溯。
+    #     """
+    #     logger = getLogger("semantic_cluster")
+        
+    #     # 获取这两个 nodes 的最近公共根（已缓存）
+    #     nearest_root = self._get_nearest_root_for_node_pair(node_v1, node_v2)
+    #     if nearest_root is None:
+    #         logger.debug(f"[_construct_path_within_group] No common root for '{node_v1.text}' and '{node_v2.text}'")
+    #         return None
+        
+    #     # 从 node_v1 追溯到 nearest_root
+    #     path_v1_to_root = []
+    #     current = node_v1
+    #     visited = set()
+    #     while current is not None and current not in visited:
+    #         visited.add(current)
+    #         path_v1_to_root.append(current)
+    #         if current == nearest_root:
+    #             break
+    #         current = current.head
+        
+    #     if not path_v1_to_root or path_v1_to_root[-1] != nearest_root:
+    #         logger.debug(f"[_construct_path_within_group] Failed to trace node_v1 to root")
+    #         return None
+        
+    #     # 从 node_v2 追溯到 nearest_root
+    #     path_v2_to_root = []
+    #     current = node_v2
+    #     visited = set()
+    #     while current is not None and current not in visited:
+    #         visited.add(current)
+    #         path_v2_to_root.append(current)
+    #         if current == nearest_root:
+    #             break
+    #         current = current.head
+        
+    #     if not path_v2_to_root or path_v2_to_root[-1] != nearest_root:
+    #         logger.debug(f"[_construct_path_within_group] Failed to trace node_v2 to root")
+    #         return None
+        
+    #     # 合并路径：v1 → ... → root ← ... ← v2
+    #     # path_v2_to_root 需要反向，且去掉最后的 root（避免重复）
+    #     path_v2_to_root_reversed = path_v2_to_root[:-1]
+    #     path_v2_to_root_reversed.reverse()
+        
+    #     full_path = path_v1_to_root + path_v2_to_root_reversed
+    #     return full_path if full_path else None
+    
+    # ====== 辅助：跨 groups 的路径构造 ======
+    # def _construct_path_across_groups(self, node_v1: Node, node_v2: Node,
+    #                                 g_v1: int, g_v2: int,
+    #                                 groups: list[list[Hyperedge]],
+    #                                 intersections: dict[tuple[int, int], set[Node]]
+    #                                 ) -> list[list[tuple[Node, int, Node]]]:
+    #     """
+    #     构造跨越多个 groups 的大步序列。
+        
+    #     返回值：list[list[tuple[Node, int, Node]]]，表示多条大步路径
+    #     - 最外层 list：多条路径
+    #     - 中间层 list：单条路径的大步序列
+    #     - 内层 tuple：(start_node, group_index, end_node)，表示从 start_node 出发，经过 group_index，到达 end_node
+        
+    #     策略：
+    #     1. 用 BFS 找 groups 之间的所有最短路径（group 序列）
+    #     2. 对每条 group 序列，对每个相邻 group 的交集做笛卡尔积，枚举所有桥梁组合
+    #     3. 返回所有大步序列（由上层方法填充小步）
+    #     """
+    #     logger = getLogger("semantic_cluster")
 
-    def get_path_node_steps(self, v1: Vertex, v2: Vertex) -> list[list[list[Node]]]:
+    #     # 找 groups 之间的所有最短路径（group 序列）
+    #     group_paths = self._find_all_shortest_inter_group_paths_bfs(g_v1, g_v2, intersections)
+
+    #     if not group_paths:
+    #         logger.debug(f"[_construct_path_across_groups] No path between group {g_v1} and {g_v2}")
+    #         return []
+
+    #     all_big_step_sequences: list[list[tuple[Node, int, Node]]] = []
+
+    #     for group_path in group_paths:
+    #         if len(group_path) < 2:
+    #             continue
+
+    #         # 收集每个相邻 group 的交集节点列表，后续做笛卡尔积
+    #         bridge_candidates_per_hop: list[list[Node]] = []
+    #         valid_group_path = True
+    #         for i in range(len(group_path) - 1):
+    #             g_curr = group_path[i]
+    #             g_next = group_path[i + 1]
+    #             inter_key = (g_curr, g_next) if (g_curr, g_next) in intersections else (g_next, g_curr)
+    #             bridge_nodes = intersections.get(inter_key)
+    #             if not bridge_nodes:
+    #                 valid_group_path = False
+    #                 break
+    #             bridge_candidates_per_hop.append(list(bridge_nodes))
+
+    #         if not valid_group_path or not bridge_candidates_per_hop:
+    #             continue
+
+    #         # 枚举交集组合：例如 [w1,w2] x [w3,w4]
+    #         for bridge_combo in product(*bridge_candidates_per_hop):
+    #             big_steps: list[tuple[Node, int, Node]] = []
+
+    #             # 第一步：(node_v1, group_path[0], bridge_combo[0])
+    #             big_steps.append((node_v1, group_path[0], bridge_combo[0]))
+
+    #             # 中间步：(bridge_combo[i-1], group_path[i], bridge_combo[i])
+    #             for i in range(1, len(bridge_combo)):
+    #                 big_steps.append((bridge_combo[i - 1], group_path[i], bridge_combo[i]))
+
+    #             # 最后一步：(bridge_combo[-1], group_path[-1], node_v2)
+    #             big_steps.append((bridge_combo[-1], group_path[-1], node_v2))
+
+    #             all_big_step_sequences.append(big_steps)
+
+    #     return all_big_step_sequences
+
+    # def _find_all_shortest_inter_group_paths_bfs(self, g_from: int, g_to: int,
+    #                                             intersections: dict[tuple[int, int], set[Node]]
+    #                                             ) -> list[list[int]]:
+    #     """
+    #     用 BFS 返回从 g_from 到 g_to 的所有最短 group 路径。
+    #     """
+    #     if g_from == g_to:
+    #         return [[g_from]]
+
+    #     # 构建 group 邻接表
+    #     adjacency: dict[int, set[int]] = {}
+    #     for g1, g2 in intersections.keys():
+    #         adjacency.setdefault(g1, set()).add(g2)
+
+    #     # BFS 计算最短距离
+    #     dist: dict[int, int] = {g_from: 0}
+    #     queue = deque([g_from])
+    #     while queue:
+    #         current = queue.popleft()
+    #         for nxt in adjacency.get(current, set()):
+    #             if nxt not in dist:
+    #                 dist[nxt] = dist[current] + 1
+    #                 queue.append(nxt)
+
+    #     if g_to not in dist:
+    #         return []
+
+    #     shortest_len = dist[g_to]
+
+    #     # 反向回溯所有最短路径
+    #     all_paths: list[list[int]] = []
+
+    #     def dfs(node: int, path: list[int]) -> None:
+    #         if node == g_from:
+    #             all_paths.append(path[::-1])
+    #             return
+
+    #         for prev in adjacency.get(node, set()):
+    #             if prev in dist and dist[prev] == dist[node] - 1:
+    #                 dfs(prev, path + [prev])
+
+    #     dfs(g_to, [g_to])
+
+    #     # 安全过滤：仅保留最短长度路径
+    #     return [p for p in all_paths if len(p) - 1 == shortest_len]
+    
+    # ====== 辅助：BFS 找 groups 间最短路径 ======
+    # def _find_shortest_inter_group_path_bfs(self, g_from: int, g_to: int,
+    #                                         intersections: dict[tuple[int, int], set[Node]]
+    #                                         ) -> list[int]:
+    #     """
+    #     用 BFS 找从 g_from 到 g_to 的最短 group 路径。
+    #     返回 group 索引序列。
+    #     """
+    #     if g_from == g_to:
+    #         return [g_from]
+        
+    #     queue = deque([(g_from, [g_from])])
+    #     visited = {g_from}
+        
+    #     while queue:
+    #         current, path = queue.popleft()
+            
+    #         if current == g_to:
+    #             return path
+            
+    #         # 探索相邻 groups（通过交集）
+    #         for (g1, g2) in intersections.keys():
+    #             if g1 == current and g2 not in visited:
+    #                 queue.append((g2, path + [g2]))
+    #                 visited.add(g2)
+    #             elif g2 == current and g1 not in visited:
+    #                 queue.append((g1, path + [g1]))
+    #                 visited.add(g1)
+        
+    #     return []
+    
+    # ====== 步骤5: 将路径转换为字符串 ======
+    # def _path_to_string(self, path: list[Node]) -> tuple[str, int]:
+    #     """
+    #     将一条 Node 路径转换为字符串描述和长度。
+        
+    #     返回：
+    #     - (description: str, length: int)
+    #     """
+    #     if not path:
+    #         return "", 0
+        
+    #     # 简化实现：直接拼接节点文本
+    #     node_texts = []
+    #     for node in path:
+    #         if hasattr(node, 'text'):
+    #             node_texts.append(node.text)
+    #         else:
+    #             node_texts.append(str(node))
+        
+    #     description = " ".join(node_texts)
+    #     return description, len(path)
+
+    def get_path_node_steps(self, v1: Vertex, v2: Vertex) -> tuple[list[list[Node]], Node | None, Node | None]:
         """
-        `get_path_description` 的节点版平替接口。
-
-        返回值不是字符串，而是小步路径列表：`list[list[Node]]`。
-        每个小步路径都由两个相邻节点组成，相邻小步满足首尾相同：
-        `[n0, n1], [n1, n2], [n2, n3], ...`
-
-        说明：
-        - 与 _construct_full_sequences 使用相同的逻辑构造路径（直接调用辅助方法）
-        - 对每条完整路径切分为小步路径返回
-        - 返回格式：list[list[list[Node]]]，最外层是多条路径，中间层是小步列表，最内层是单个小步
+        计算两个 Vertex 之间的路径节点列表。
+        
+        返回格式：
+                - tuple[list[list[Node]], Node | None, Node | None]:
+                    - 第1项：对于路径上的每个 Group 段，返回该段内根据 node.index 排序的 Node 列表
+                    - 第2项：v1 在起始 group/hyperedge 中对应的 current_node
+                    - 第3项：v2 在结束 group/hyperedge 中对应的 current_node
+        
+        处理流程：
+        1. 构造三元组序列 [(n1, g1, w1), (w1, g2, w2), ..., (wk, gn, n2)]
+        2. 对每个三元组 (a, g, b)：
+           - 找它们在 group g 中的最近公共根 r
+           - 追溯两条路径 a→r 和 b→r，收集所有节点
+           - 合并去重后按 node.index 排序
+        3. 返回所有段的排序节点列表
+        
+        特殊处理：
+        - 如果某个节点就是另一个节点的祖先，会妥善处理不出错
         """
         logger = getLogger("semantic_cluster")
         
         if v1 is None or v2 is None:
-            return []
+            return [], None, None
         
         try:
-            # 步骤 1: 构建 hyperedge groups
-            groups, _ = self._build_hyperedge_groups()
+            # 步骤 1: 获取 v1, v2 各自所属的 Group 集合
+            v1_groups = self._get_vertex_groups(v1)
+            v2_groups = self._get_vertex_groups(v2)
             
-            # 步骤 2: 找出 v1 和 v2 所在的 hyperedges
-            hyperedges_v1 = [he for he in self.hyperedges if v1 in he.vertices]
-            hyperedges_v2 = [he for he in self.hyperedges if v2 in he.vertices]
+            if not v1_groups or not v2_groups:
+                logger.debug(f"[get_path_node_steps] v1 or v2 not in any group")
+                return [], None, None
             
-            if not hyperedges_v1 or not hyperedges_v2:
-                return []
+            # 步骤 2: 找最近的 Group 对和路径
+            closest_result = self._find_closest_group_pair(v1_groups, v2_groups)
+            if closest_result is None:
+                logger.debug(f"[get_path_node_steps] No path between v1_groups={v1_groups} and v2_groups={v2_groups}")
+                return [], None, None
             
-            # 获取 hyperedge 到 group 的映射和 groups 间交集
-            _, he_to_group = self._build_hyperedge_groups()
-            intersections = self._find_group_intersections()
+            g1, gn, group_path = closest_result
+            logger.debug(f"[get_path_node_steps] Found path: {group_path}")
             
-            all_paths = []  # list[list[Node]]，存储所有完整路径
+            # 步骤 3: 获取 v1 在第一个 Group g1 中的 current_node
+            groups, he_to_group = self._build_hyperedge_groups()
             
-            # 步骤 3: 枚举所有可能的 (he_v1, he_v2) 组合
-            for he_v1 in hyperedges_v1:
-                node_v1 = he_v1.current_node(v1)
-                if node_v1 is None:
-                    continue
-                
-                g_v1 = he_to_group.get(he_v1)
-                if g_v1 is None:
-                    continue
-                
-                for he_v2 in hyperedges_v2:
-                    node_v2 = he_v2.current_node(v2)
-                    if node_v2 is None:
-                        continue
+            n1 = None
+            for he in self.hyperedges:
+                if v1 in he.vertices and he_to_group.get(he) == g1:
+                    n1 = he.current_node(v1)
+                    if n1 is not None:
+                        break
+            
+            if n1 is None:
+                logger.debug(f"[get_path_node_steps] Cannot find node for v1 in group {g1}")
+                return [], None, None
+            
+            # 步骤 4: 获取 v2 在最后一个 Group gn 中的 current_node
+            n2 = None
+            for he in self.hyperedges:
+                if v2 in he.vertices and he_to_group.get(he) == gn:
+                    n2 = he.current_node(v2)
+                    if n2 is not None:
+                        break
+            
+            if n2 is None:
+                logger.debug(f"[get_path_node_steps] Cannot find node for v2 in group {gn}")
+                return [], None, None
+            
+            # 步骤 5: 构建三元组序列
+            triple_sequence: list[tuple[Node, int, Node]] = []
+            bridge_map = self._build_inter_group_bridge_map()
+            
+            # 处理单一 Group 的情况（v1 和 v2 在同一 Group）
+            if g1 == gn:
+                triple_sequence.append((n1, g1, n2))
+            else:
+                # 处理多个 Group 的情况
+                current_node = n1
+                for i in range(len(group_path) - 1):
+                    gi = group_path[i]
+                    next_gi = group_path[i + 1]
                     
-                    g_v2 = he_to_group.get(he_v2)
-                    if g_v2 is None:
-                        continue
+                    # 获取 gi 和 next_gi 之间的桥梁 Node
+                    bridge_key = (gi, next_gi) if (gi, next_gi) in bridge_map else (next_gi, gi)
+                    bridges = bridge_map.get(bridge_key, set())
                     
-                    # 情况1：同一 group 内
-                    if g_v1 == g_v2:
-                        path = self._construct_path_within_group(node_v1, node_v2, groups[g_v1])
-                        if path:
-                            all_paths.append(path)
-                    else:
-                        # 情况2：不同 groups
-                        big_step_sequences = self._construct_path_across_groups(
-                            node_v1, node_v2, g_v1, g_v2, groups, intersections
-                        )
-                        
-                        # 对每个大步序列，填充小步
-                        for big_steps in big_step_sequences:
-                            full_path = []
-                            
-                            # 遍历大步序列中的每一个大步
-                            for step_idx, (start_node, group_idx, end_node) in enumerate(big_steps):
-                                # 调用 _construct_path_within_group 获得小步路径
-                                small_path = self._construct_path_within_group(start_node, end_node, groups[group_idx])
-                                
-                                if small_path is None:
-                                    logger.debug(f"[get_path_node_steps] Failed to construct path in group {group_idx}")
-                                    break  # 这个大步序列无法完成，跳过
-                                
-                                # 添加小步路径（避免重复第一个节点，除了第一步）
-                                if not full_path:
-                                    full_path.extend(small_path)
-                                else:
-                                    full_path.extend(small_path[1:])
-                            else:
-                                # 所有大步都成功完成
-                                if full_path:
-                                    all_paths.append(full_path)
+                    if not bridges:
+                        logger.debug(f"[get_path_node_steps] No bridges between {gi} and {next_gi}")
+                        return [], None, None
+                    
+                    # 选择第一个桥梁 Node（可以优化为选择距离最近的）
+                    next_node = next(iter(bridges))
+                    triple_sequence.append((current_node, gi, next_node))
+                    current_node = next_node
+                
+                # 最后一个三元组：从最后一个桥梁 Node 到 v2
+                triple_sequence.append((current_node, gn, n2))
             
-            if not all_paths:
-                logger.debug(f"[get_path_node_steps] No path found between {v1.text()} and {v2.text()}")
-                return []
+            # 步骤 6: 对每个三元组，构造该 Group 内的完整 Node 路径
+            result: list[list[Node]] = []
             
-            # 步骤 4: 将每条完整路径切分为小步路径
-            # 每条完整路径 [n0, n1, n2, ...] 分解为 [[n0, n1], [n1, n2], [n2, n3], ...]
-            result = []
-            for path in all_paths:
-                small_steps = []
-                for i in range(len(path) - 1):
-                    small_steps.append([path[i], path[i + 1]])
-                result.append(small_steps)
+            for node_a, group_idx, node_b in triple_sequence:
+                # 获取该 group 内两个节点的最近公共根
+                # 注意：缓存中的 (node1, node2) 是在同一 group 内计算的
+                assert self._node_pair_nearest_root
+                
+                nearest_root = self._node_pair_nearest_root.get((node_a, node_b))
+                
+                if nearest_root is None:
+                    # 尝试反向查找
+                    nearest_root = self._node_pair_nearest_root.get((node_b, node_a))
+                
+                if nearest_root is None:
+                    logger.debug(f"[get_path_node_steps] Cannot find common root for {node_a.text} and {node_b.text} in group {group_idx}")
+                    return [], None, None
+                
+                # 从 node_a 上溯到 nearest_root，收集路径
+                path_a: list[Node] = []
+                current = node_a
+                visited_a: set[Node] = set()
+                while current is not None and current not in visited_a:
+                    visited_a.add(current)
+                    path_a.append(current)
+                    if current == nearest_root:
+                        break
+                    current = current.head
+                
+                # 从 node_b 上溯到 nearest_root，收集路径
+                path_b: list[Node] = []
+                current = node_b
+                visited_b: set[Node] = set()
+                while current is not None and current not in visited_b:
+                    visited_b.add(current)
+                    path_b.append(current)
+                    if current == nearest_root:
+                        break
+                    current = current.head
+                
+                # 检查是否成功到达最近公共根
+                if not path_a or path_a[-1] != nearest_root:
+                    logger.debug(f"[get_path_node_steps] Failed to trace {node_a.text} to root {nearest_root.text}")
+                    return [], None, None
+                
+                if not path_b or path_b[-1] != nearest_root:
+                    logger.debug(f"[get_path_node_steps] Failed to trace {node_b.text} to root {nearest_root.text}")
+                    return [], None, None
+                
+                # 合并两条路径（去除重复的 nearest_root）
+                # path_a: [a, ..., root]
+                # path_b: [b, ..., root]
+                # 合并：[a, ..., root, ..., b]（root 只出现一次）
+                merged_path = path_a + path_b[-2::-1]  # path_b 反向去掉最后的 root
+                
+                # 按 node.index 排序
+                sorted_nodes = sorted(merged_path, key=lambda node: node.index if hasattr(node, 'index') else float('inf'))
+                
+                result.append(sorted_nodes)
             
-            return result
+            return result, n1, n2
             
         except Exception as e:
             logger.exception(f"[get_path_node_steps] Error finding path: {e}")
-            return []
+            return [], None, None
     
-    # ====== 主入口：get_path_description ======
-    def get_path_description(self, v1: Vertex, v2: Vertex) -> list[tuple[str, int]]:
-        """
-        获取两个 Vertex 之间的路径描述。
+    # # ====== 主入口：get_path_description ======
+    # def get_path_description(self, v1: Vertex, v2: Vertex) -> list[tuple[str, int]]:
+    #     """
+    #     获取两个 Vertex 之间的路径描述。
         
-        返回多条可能的路径，按长度从短到长排序。
-        每条路径返回 (description: str, length: int)
+    #     返回多条可能的路径，按长度从短到长排序。
+    #     每条路径返回 (description: str, length: int)
         
-        算法流程：
-        1. 构建 hyperedges 的 groups（按 root 连接关系）
-        2. 找 groups 之间的交集节点（桥梁）
-        3. 找从 v1 所在 group 到 v2 所在 group 的路径
-        4. 构造完整的 Node 序列
-        5. 转换为字符串描述
-        """
-        logger = getLogger("semantic_cluster")
+    #     算法流程：
+    #     1. 构建 hyperedges 的 groups（按 root 连接关系）
+    #     2. 找 groups 之间的交集节点（桥梁）
+    #     3. 找从 v1 所在 group 到 v2 所在 group 的路径
+    #     4. 构造完整的 Node 序列
+    #     5. 转换为字符串描述
+    #     """
+    #     logger = getLogger("semantic_cluster")
         
-        if v1 is None or v2 is None:
-            return []
+    #     if v1 is None or v2 is None:
+    #         return []
         
-        try:
-            # 步骤 1-4: 构造路径
-            groups, _ = self._build_hyperedge_groups()
-            sequences = self._construct_full_sequences(v1, v2, groups)
+    #     try:
+    #         # 步骤 1-4: 构造路径
+    #         groups, _ = self._build_hyperedge_groups()
+    #         sequences = self._construct_full_sequences(v1, v2, groups)
             
-            if not sequences:
-                logger.debug(f"[get_path_description] No path found between {v1.text()} and {v2.text()}")
-                return []
+    #         if not sequences:
+    #             logger.debug(f"[get_path_description] No path found between {v1.text()} and {v2.text()}")
+    #             return []
             
-            # 步骤 5: 转换为字符串
-            paths = [self._path_to_string(seq) for seq in sequences]
+    #         # 步骤 5: 转换为字符串
+    #         paths = [self._path_to_string(seq) for seq in sequences]
             
-            # 按长度排序
-            paths.sort(key=lambda x: x[1])
+    #         # 按长度排序
+    #         paths.sort(key=lambda x: x[1])
             
-            return paths
+    #         return paths
             
-        except Exception as e:
-            logger.exception(f"[get_path_description] Error finding path: {e}")
-            return []
+    #     except Exception as e:
+    #         logger.exception(f"[get_path_description] Error finding path: {e}")
+    #         return []
         
     @staticmethod
     def likely_nodes(nodes1: list[Vertex], nodes2: list[Vertex]) -> dict[Vertex, set[Vertex]]:
@@ -1541,6 +1832,7 @@ def calc_semantic_cluster_pairs(
         assert sc_q.embedding is not None and sc_d.embedding is not None, "Embedding should have been calculated"    
         if sim_score >= cluster_sim_threshold:
             pairs.append((sc_q, sc_d, sim_score))
+            # print(f"Q: '{sc_q.text()}'\nD: '{sc_d.text()}'\nSim: {sim_score:.4f}\n---")
             passed_count += 1
     
     filter_time = time.time() - filter_start
