@@ -94,4 +94,4 @@ if __name__ == "__main__":
         scores = model(**features).logits
         label_mapping = ['contradiction', 'entailment', 'neutral']
         labels = [label_mapping[score_max] for score_max in scores.argmax(dim=1)]
-        print(labels)
+        # print(labels)

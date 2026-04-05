@@ -141,6 +141,7 @@ refine = { cmd = "python tests/tools/refine.py" }
 title = { cmd = "python tests/tools/title.py" }
 trans = { cmd = "python tests/tools/title_trans.py" }
 remote = { cmd = "python tests/tasks/refine_hypergraph.py" }
+check = { cmd = "python tests/tasks/support_check.py" }
 
 [environments]
 hypergraph = { features = ["hypergraph"] }

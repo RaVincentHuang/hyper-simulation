@@ -311,7 +311,7 @@ def calc_d_match_batch(sc_pairs: list[tuple[SemanticCluster, SemanticCluster]], 
 
                 desc1 = _construct_description_from_path(path1, v1_node, v1_prime_node)
                 desc2 = _construct_description_from_path(path2, v2_node, v2_prime_node)
-                print(f"D-match sentence: '{desc1}' <-> '{desc2}' for vertices '{v1.text()}' and '{v2.text()}' with index {index}")
+                # print(f"D-match sentence: '{desc1}' <-> '{desc2}' for vertices '{v1.text()}' and '{v2.text()}' with index {index}")
                 score_pairs.append((desc1, desc2))
                 score_meta.append((pair_idx, v1, v2, index))
 
@@ -320,12 +320,12 @@ def calc_d_match_batch(sc_pairs: list[tuple[SemanticCluster, SemanticCluster]], 
 
     # 单次批量打分
     
-    print(f"Calculating D-Match for {len(sc_pairs)} pairs with {len(score_pairs)} scoring items...")
+    # print(f"Calculating D-Match for {len(sc_pairs)} pairs with {len(score_pairs)} scoring items...")
     time1 = time.time()
-    print(f"Scoring batch prepared in {time1 - start_time:.2f} seconds, now calling NLI batch API...")
+    # print(f"Scoring batch prepared in {time1 - start_time:.2f} seconds, now calling NLI batch API...")
     scores = get_nli_remix_score_batch(score_pairs)
     time2 = time.time()
-    print(f"NLI scoring completed in {time2 - time1:.2f} seconds")
+    # print(f"NLI scoring completed in {time2 - time1:.2f} seconds")
     # 聚合：固定 (pair_idx, v1, v2, index) 取最大
     for (pair_idx, v1, v2, index), score in zip(score_meta, scores):
         pair_map = pair_index_max_by_pair[pair_idx]

@@ -727,7 +727,7 @@ def post_detection(
                         "reason": "nli_contradiction",
                         "detail": f"original_ab={original_ab}|original_ba={original_ba}|truncated_ab={truncated_ab}|truncated_ba={truncated_ba}",
                     }
-                    print(f"[NLI 4-way contradiction] ({u.text()}, {u_prime.text()}) <-> ({v.text()}, {v_prime.text()})")
+                    # print(f"[NLI 4-way contradiction] ({u.text()}, {u_prime.text()}) <-> ({v.text()}, {v_prime.text()})")
                 else:
                     quad_evidence[qkey] = {
                         "reason": "nli_non_contradiction",
@@ -756,14 +756,14 @@ def post_detection(
                 if is_non_contradict:
                     uu_to_vv_match.setdefault((u, u_prime), set()).add((v, v_prime))
                     uu_to_vv_match.setdefault((u_prime, u), set()).add((v_prime, v))
-                    if debug_postprocess and (_should_debug_pair(u, v) or _should_debug_pair(u_prime, v_prime)):
-                        print(
-                            f"[POSTPROCESS DEBUG] NLI ok (4-way): ({u.text()}, {u_prime.text()}) <-> ({v.text()}, {v_prime.text()})"
-                        )
-                elif debug_postprocess and (_should_debug_pair(u, v) or _should_debug_pair(u_prime, v_prime)):
-                    print(
-                        f"[POSTPROCESS DEBUG] NLI 4-way contradiction: ({u.text()}, {u_prime.text()}) <-> ({v.text()}, {v_prime.text()})"
-                    )
+                    # if debug_postprocess and (_should_debug_pair(u, v) or _should_debug_pair(u_prime, v_prime)):
+                    #     print(
+                    #         f"[POSTPROCESS DEBUG] NLI ok (4-way): ({u.text()}, {u_prime.text()}) <-> ({v.text()}, {v_prime.text()})"
+                    #     )
+                # elif debug_postprocess and (_should_debug_pair(u, v) or _should_debug_pair(u_prime, v_prime)):
+                #     print(
+                #         f"[POSTPROCESS DEBUG] NLI 4-way contradiction: ({u.text()}, {u_prime.text()}) <-> ({v.text()}, {v_prime.text()})"
+                #     )
     
     # -------- 第二阶段：worklist 不动点计算 --------
     # 仅重检受影响的 u，避免每轮全量扫描 match。
@@ -796,8 +796,8 @@ def post_detection(
 
     def should_remove_pair(u: Vertex, v: Vertex) -> tuple[bool, dict[str, object] | None]:
         debug_this_pair = _should_debug_pair(u, v)
-        if debug_this_pair:
-            _print_pair_debug_header(u, v)
+        # if debug_this_pair:
+            # _print_pair_debug_header(u, v)
 
         if require_all_neighbors:
             # 模式2：u 的所有同边邻接节点都必须存在 (u', _) in match
@@ -814,10 +814,10 @@ def post_detection(
                                 f"({u_neighbor.text()}, {v_text}): {r_text}"
                                 for v_text, r_text in recent_deleted
                             ]
-                    if debug_this_pair:
-                        print(f"  [REMOVE] missing neighbor support: {u_neighbor.text()} has no surviving match")
-                        if trace_causal:
-                            print(f"  [CAUSE] {reason}")
+                    # if debug_this_pair:
+                    #     print(f"  [REMOVE] missing neighbor support: {u_neighbor.text()} has no surviving match")
+                    #     if trace_causal:
+                    #         print(f"  [CAUSE] {reason}")
                     return True, reason
             return False, None
 
@@ -826,8 +826,8 @@ def post_detection(
         for u_prime in edge_neighbors.get(u, set()):
             u_prime_pairs = match_by_u.get(u_prime)
             if not u_prime_pairs:
-                if debug_this_pair:
-                    print(f"  [SKIP] neighbor {u_prime.text()} has no surviving pairs")
+                # if debug_this_pair:
+                #     print(f"  [SKIP] neighbor {u_prime.text()} has no surviving pairs")
                 continue
 
             allowed_vv = uu_to_vv_match.get((u, u_prime), set())
@@ -836,8 +836,8 @@ def post_detection(
             for _, v_prime in u_prime_pairs:
                 if (v, v_prime) in allowed_vv:
                     has_support = True
-                    if debug_this_pair:
-                        print(f"  [SUPPORT] neighbor={u_prime.text()} supports via ({v.text()}, {v_prime.text()})")
+                    # if debug_this_pair:
+                    #     print(f"  [SUPPORT] neighbor={u_prime.text()} supports via ({v.text()}, {v_prime.text()})")
                     break
                 evidence = _get_quad_evidence(u, u_prime, v, v_prime)
                 candidate_failures.append(
@@ -849,16 +849,16 @@ def post_detection(
                     "neighbor": u_prime.text(),
                     "candidate_failures": candidate_failures[:12],
                 }
-                if debug_this_pair:
-                    print(f"  [REMOVE] no support from neighbor {u_prime.text()}")
-                    print(
-                        f"  allowed pairs for ({u.text()}, {u_prime.text()}): {[(v1.text(), v2.text()) for v1, v2 in sorted(allowed_vv, key=lambda p: (p[0].text(), p[1].text()))]}"
-                    )
-                    print(
-                        f"  surviving pairs for {u_prime.text()}: {[(u2.text(), v2.text()) for u2, v2 in sorted(u_prime_pairs, key=lambda p: (p[0].text(), p[1].text()))]}"
-                    )
-                    if trace_causal:
-                        print(f"  [CAUSE] {reason}")
+                # if debug_this_pair:
+                #     print(f"  [REMOVE] no support from neighbor {u_prime.text()}")
+                #     print(
+                #         f"  allowed pairs for ({u.text()}, {u_prime.text()}): {[(v1.text(), v2.text()) for v1, v2 in sorted(allowed_vv, key=lambda p: (p[0].text(), p[1].text()))]}"
+                #     )
+                #     print(
+                #         f"  surviving pairs for {u_prime.text()}: {[(u2.text(), v2.text()) for u2, v2 in sorted(u_prime_pairs, key=lambda p: (p[0].text(), p[1].text()))]}"
+                #     )
+                #     if trace_causal:
+                #         print(f"  [CAUSE] {reason}")
                 return True, reason
         return False, None
 
@@ -877,8 +877,8 @@ def post_detection(
                     to_remove[pair] = cause or {"reason": "unknown"}
 
         if not to_remove:
-            if debug_postprocess:
-                print(f"[POSTPROCESS DEBUG] fixed point reached with {len(match)} pairs")
+            # if debug_postprocess:
+            #     print(f"[POSTPROCESS DEBUG] fixed point reached with {len(match)} pairs")
             break
 
         next_dirty_u: set[Vertex] = set()
@@ -889,8 +889,8 @@ def post_detection(
             cause_payload = dict(cause)
             deleted_pair_causes[(u.id, v.id)] = cause_payload
             deleted_pairs_by_u.setdefault(u, []).append((v.text(), str(cause.get("reason", "unknown"))))
-            if trace_causal and (debug_postprocess and _should_debug_pair(u, v)):
-                print(f"[POSTPROCESS CAUSAL] removed ({u.text()}, {v.text()}) -> {cause}")
+            # if trace_causal and (debug_postprocess and _should_debug_pair(u, v)):
+            #     print(f"[POSTPROCESS CAUSAL] removed ({u.text()}, {v.text()}) -> {cause}")
 
             if u in match_by_u:
                 match_by_u[u].discard((u, v))
@@ -904,7 +904,7 @@ def post_detection(
 
         dirty_u = next_dirty_u
     
-    if debug_postprocess:
-        print(f"[POSTPROCESS DEBUG] final match size: {len(match)}")
+    # if debug_postprocess:
+    #     print(f"[POSTPROCESS DEBUG] final match size: {len(match)}")
 
     return list(match)

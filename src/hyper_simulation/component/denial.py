@@ -223,7 +223,7 @@ def compute_allowed_pairs_batch(
         qt = q_vertex.text()
         dt = d_vertex.text()
         if is_allowed:
-            print(f"✅ ALLOWED: {q_vertex.text()} <-> {d_vertex.text()}")
+            # print(f"✅ ALLOWED: {q_vertex.text()} <-> {d_vertex.text()}")
         
         log_entry = f"Q{q_id}: '{qt}' vs D{d_id}: '{dt}' (reason: {reason})"
         if is_allowed:
@@ -417,7 +417,7 @@ def denial_comment_by_label_hard(u: Vertex, v: Vertex, label: str) -> Tuple[bool
     vt = v.text().strip()
     
     if ut == "contestant" and vt == "Chris Daughtry":
-        print(f"Debug: Special case - allowing 'contestant' [{u.type()}] <-> 'Chris Daughtry' [{v.type()}] regardless of NLI result")
+        # print(f"Debug: Special case - allowing 'contestant' [{u.type()}] <-> 'Chris Daughtry' [{v.type()}] regardless of NLI result")
 
     if not ut or not vt:
         return False, "Empty text"
@@ -474,7 +474,7 @@ def compute_allowed_pairs_batch_with_score(
             logger.info("No candidate pairs survived hard type prefiltering.")
         return set(), {}
 
-    print(f"Debug: {len(candidate_text_pairs)} candidate pairs after hard type prefiltering, will call NLI batch API")
+    # print(f"Debug: {len(candidate_text_pairs)} candidate pairs after hard type prefiltering, will call NLI batch API")
     nli_labels_with_score = get_nli_labels_with_score_batch(candidate_text_pairs)
 
     allowed: Set[Tuple[int, int]] = set()
@@ -489,7 +489,7 @@ def compute_allowed_pairs_batch_with_score(
         
         log_entry = f"Q{q_id}: '{qt}' vs D{d_id}: '{dt}' (reason: {reason}, NLI={nli_label}, score={nli_score:.4f})"
         if is_allowed:
-            print(f"✅ ALLOWED: {q_vertex.text()} <-> {d_vertex.text()} with confidence {nli_score:.4f}")
+            # print(f"✅ ALLOWED: {q_vertex.text()} <-> {d_vertex.text()} with confidence {nli_score:.4f}")
             allowed.add((q_id, d_id))
             confidence_scores[(q_id, d_id)] = nli_score
         else:
