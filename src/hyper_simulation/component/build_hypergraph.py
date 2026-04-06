@@ -68,13 +68,16 @@ def normalize_special_chars(text: str) -> str:
     return result.strip()
 
 
-def get_nlp() -> spacy.Language:
+def get_nlp(use_gpu: bool = False) -> spacy.Language:
     global _NLP
     if _NLP is None:
+        if use_gpu:
+            spacy.require_gpu()
         _NLP = spacy.load('en_core_web_trf')
         if 'fastcoref' not in _NLP.pipe_names:
             local_model_path = "/home/vincent/.cache/huggingface/hub/models--biu-nlp--lingmess-coref/snapshots/fa5d8a827a09388d03adbe9e800c7d8c509c3935"
-            _NLP.add_pipe('fastcoref', config={ 'model_architecture': 'LingMessCoref', 'model_path': local_model_path, 'device': 'cpu'})
+            device = 'cuda' if use_gpu else 'cpu'
+            _NLP.add_pipe('fastcoref', config={ 'model_architecture': 'LingMessCoref', 'model_path': local_model_path, 'device': device})
     
     # Tokenizer: special cases
     # R1: I. => I .  (防止把 "I." 误识别为一个token，导致 "I" 的lemma无法正确识别为 "I")
@@ -223,4 +226,80 @@ def build_hypergraph_batch(
             qi, dataset_name, base_dir, force_rebuild
         )
         instance_dirs.append(instance_dir)
+    return instance_dirs
+
+def build_hypergraph_batch_gpu(
+    query_instances: List[QueryInstance],
+    dataset_name: str = "hotpotqa",
+    base_dir: Union[str, Path] = "data/hypergraph",
+    force_rebuild: bool = False,
+    batch_size: int = 16
+) -> List[str]:
+    logger = getLogger(__name__)
+    tasks = []
+    instance_dirs = []
+    instances_to_write_metadata = []
+    
+    for qi in query_instances:
+        instance_id = generate_instance_id(qi.query)
+        instance_dir = Path(base_dir) / dataset_name / instance_id
+        instance_dir.mkdir(parents=True, exist_ok=True)
+        instance_dirs.append(str(instance_dir.resolve()))
+        
+        metadata_path = instance_dir / "metadata.json"
+        if metadata_path.exists() and not force_rebuild:
+            continue
+            
+        instances_to_write_metadata.append((instance_dir, qi))
+        
+        # query task
+        query_path = instance_dir / "query.pkl"
+        if not query_path.exists() or force_rebuild:
+            tasks.append({
+                'path': query_path,
+                'text': clean_text_for_spacy(qi.query),
+                'original_text': qi.query,
+                'is_query': True
+            })
+            
+        # data tasks
+        for idx, doc_text in enumerate(qi.data):
+            data_path = instance_dir / f"data_{idx}.pkl"
+            if not data_path.exists() or force_rebuild:
+                tasks.append({
+                    'path': data_path,
+                    'text': clean_text_for_spacy(doc_text),
+                    'original_text': doc_text,
+                    'is_query': False
+                })
+                
+    if not tasks:
+        return instance_dirs
+        
+    nlp = get_nlp(use_gpu=True)
+    texts = [t['text'] for t in tasks]
+    cfg = {"fastcoref": {'resolve_text': True}} if "fastcoref" in nlp.pipe_names else {}
+    
+    logger.info(f"Processing {len(texts)} texts with batch_size={batch_size} on GPU...")
+    docs = nlp.pipe(texts, component_cfg=cfg, batch_size=batch_size)
+    
+    import json
+    for task, doc in tqdm(zip(tasks, docs), total=len(tasks), desc="Building hypergraphs (GPU)", position=1, leave=False):
+        try:
+            hg = doc_to_hypergraph(doc, task['original_text'], is_query=task['is_query'])
+            hg.save(str(task['path']))
+        except Exception as e:
+            logger.error(f"Failed to build hypergraph for {task['path']}: {e}")
+            
+    for instance_dir, qi in instances_to_write_metadata:
+        metadata_path = instance_dir / "metadata.json"
+        instance_id = generate_instance_id(qi.query)
+        metadata = {
+            "instance_id": instance_id,
+            "num_data": len(qi.data),
+            "data_lengths": [len(d) for d in qi.data],
+        }
+        with open(metadata_path, 'w') as f:
+            json.dump(metadata, f)
+            
     return instance_dirs

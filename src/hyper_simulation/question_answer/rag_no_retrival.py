@@ -194,8 +194,8 @@ def run_rag_evaluation(
                 fixed_query_instances = [run_bsim_for_query(qi, task=task) for qi in query_instances]
             elif method == "hyper_simulation":
                 if not build:
-                    from hyper_simulation.component.build_hypergraph import build_hypergraph_batch
-                    build_hypergraph_batch(query_instances, dataset_name=task, force_rebuild=rebuild)
+                    from hyper_simulation.component.build_hypergraph import build_hypergraph_batch_gpu
+                    build_hypergraph_batch_gpu(query_instances, dataset_name=task, force_rebuild=rebuild, batch_size=128)
                     print("Hypergraph built. Please re-run with --build to evaluate.")
                     pbar.update(len(filtered_batch))
                     continue
@@ -418,7 +418,7 @@ def main():
     parser.add_argument(
         '--batch_size',
         type=int,
-        default=5,
+        default=100,
         help='Batch size for LLM inference'
     )
     parser.add_argument(

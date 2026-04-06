@@ -1,4 +1,3 @@
-from enum import Enum, IntEnum
 from thefuzz import process
 
 # from hyper_simulation.hypergraph.abstraction import TokenAbstractor
@@ -886,7 +885,11 @@ class Dependency:
                 continue
             base_text = node.resolved_text or node.text
             text = base_text.lower()
-            extraction = process.extractOne(text, choices) if choices else None
+            processed_text = fuzz_utils.full_process(text)
+            if not processed_text:
+                extraction = None
+            else:
+                extraction = process.extractOne(text, choices) if choices else None
             match extraction:
                 case (best_match, score) if _match_same(best_match, score, node, choices_map, pos_map, entity_map, ent_map):
                     vertex_id_map[node] = choices_map[best_match]
@@ -904,7 +907,11 @@ class Dependency:
             nonlocal cnt
             base_text = node.resolved_text or node.text
             text = base_text.lower()
-            extraction = process.extractOne(text, choices) if choices else None
+            processed_text = fuzz_utils.full_process(text)
+            if not processed_text:
+                extraction = None
+            else:
+                extraction = process.extractOne(text, choices) if choices else None
             match extraction:
                 case (best_match, score) if _match_same(best_match, score, node, choices_map, pos_map, entity_map, ent_map):
                     vertex_id_map[node] = choices_map[best_match]
