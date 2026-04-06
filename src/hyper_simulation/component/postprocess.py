@@ -913,3 +913,38 @@ def post_detection(
     #     print(f"[POSTPROCESS DEBUG] final match size: {len(match)}")
 
     return list(match)
+
+def get_simulation_slice(query: LocalHypergraph, data: LocalHypergraph, simulation: list[tuple[Vertex, Vertex]], num: int) -> list[list[tuple[Vertex, Vertex]]]:
+    """
+    基于 Vertex 的 provenance 信息，将 simulation 切割为各个原始 hypergraph 下的切片。
+    
+    u 来自 query（单一来源），v 来自 data（可能属于多个原始 hypergraph）。
+    对于 simulation 中的每个 (u, v) 对，根据 v 的 provenance 确定该对属于哪些原始 hypergraph。
+    
+    参数：
+    - query: 查询的 LocalHypergraph
+    - data: 数据的 LocalHypergraph
+    - simulation: Vertex 对的匹配列表
+    - num: 原始 hypergraph 的总数量（从1到num）
+    
+    返回：
+    - list[list[tuple[Vertex, Vertex]]]: 长度为 num 的列表，
+      其中索引 i 对应第 (i+1) 个原始 hypergraph 的 simulation 切片
+    """
+    # 初始化结果：每个原始 hypergraph 对应一个空列表
+    slices = [[] for _ in range(num)]
+    
+    # 遍历 simulation 中的每个 (u, v) 对
+    for u, v in simulation:
+        if u is None or v is None:
+            continue
+        
+        # 获取 v 的 provenance（所属的原始 hypergraph id 集合）
+        v_provenance = v.get_provenance()
+        
+        # 将该对添加到 v 所属的所有原始 hypergraph 对应的切片中
+        for hg_id in v_provenance:
+            # hg_id 从1开始，数组索引从0开始，所以需要减1
+            slices[hg_id - 1].append((u, v))
+    
+    return slices

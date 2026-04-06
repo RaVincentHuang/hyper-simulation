@@ -13,6 +13,7 @@ from hyper_simulation.utils.log import current_query_id
 from hyper_simulation.hypergraph.union import MultiHopFusion
 from hyper_simulation.component.nli import init_nli_model
 from hyper_simulation.component.embedding import init_embedding_model
+from hyper_simulation.question_answer.decompose import decompose_question
 import json
 import time
 
@@ -75,8 +76,13 @@ def query_fixup(path: str = 'logs/debugs'):
     valid_indices = [i for i, hg in enumerate(data_hgs) if hg is not None]
     valid_hgs = [data_hgs[i] for i in valid_indices]
     
-    _, valid_texts, _ = load_musique_case(f"/home/vincent/.dataset/musique/x.json")
-            
+    query_text, valid_texts, _ = load_musique_case(f"/home/vincent/.dataset/musique/x.json")
+    
+    decomposes = decompose_question(query_text, query_hg)
+    print("\n=== Decomposed Sub-questions ===")
+    for i, (sub_q, vertex_ids) in enumerate(decomposes):
+        print(f"[{i + 1}] {sub_q} (related vertex IDs: {sorted(vertex_ids)})")
+    
         # merge + reverse trace
         
     context = fusion.process(query_hg, valid_hgs, valid_texts)

@@ -8,7 +8,7 @@ from hyper_simulation.hypergraph.linguistic import QueryType, Pos, Tag, Dep, Ent
 from hyper_simulation.component.nli import get_nli_labels_batch
 from hyper_simulation.component.hyper_simulation import compute_hyper_simulation
 from hyper_simulation.utils.log import getLogger
-from hyper_simulation.component.postprocess import post_detection
+from hyper_simulation.component.postprocess import post_detection, get_simulation_slice
 logger = getLogger(__name__)
 
 class UnionFind:
@@ -600,9 +600,16 @@ class MultiHopFusion:
         
         simulation: list[Tuple[Vertex, Vertex]] = [(u, v) for q_id, d_ids in mapping.items() for d_id in d_ids for u in [q_map[q_id]] for v in [d_map[d_id]]]
         
-        time3 = time.time()
-        final = post_detection(query_hg, merged_hg, simulation)
-        time4 = time.time()
+        # time3 = time.time()
+        # final = post_detection(query_hg, merged_hg, simulation)
+        # time4 = time.time()
+        simulations = get_simulation_slice(query_hg, merged_hg, simulation, len(evidence_hgs))
+        for i, sim in enumerate(simulations):
+            print(f"Simulation slice for evidence [{i + 1}]:")
+            for u, v in sim:
+                if u.is_verb() or v.is_verb() or u.is_adjective() or v.is_adjective() or u.is_adverb() or v.is_adverb():
+                    continue
+                print(f"  Match: {u.text()} <-> {v.text()}")
         # print(f"Post-processing time: {time4 - time3:.2f} seconds")
         # for u, v in final:
         #     if u.is_verb() or v.is_verb():
