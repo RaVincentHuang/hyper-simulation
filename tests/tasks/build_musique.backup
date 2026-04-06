@@ -1,24 +1,26 @@
+
+
 """
 MuSiQue 超图构建工具，支持 GPU 加速和批处理
 
 用法示例：
 
 1. **GPU 批处理模式（推荐，性能最优）**
-   python tests/tasks/build_musique.py --use-gpu-batch --batch-size 32
+	python tests/tasks/build_musique.py --use-gpu-batch --batch-size 1024
 
 2. **单文本处理模式（原始，兼容性好）**
-   python tests/tasks/build_musique.py
+	python tests/tasks/build_musique.py
 
 3. **强制重建 + GPU 批处理**
-   python tests/tasks/build_musique.py --use-gpu-batch --force-rebuild
+	python tests/tasks/build_musique.py --use-gpu-batch --force-rebuild
 
 4. **自定义批大小**
-   python tests/tasks/build_musique.py --use-gpu-batch --batch-size 16
+	python tests/tasks/build_musique.py --use-gpu-batch --batch-size 512
 
 关键功能：
 
 - `setup_gpu_nlp()`: 初始化 GPU + fastcoref（CUDA加速的指代消解）
-- `batch_text_to_hypergraph()`: 使用 spacy.pipe() 批量处理文本，支持自动降级
+- `batch_text_to_hypergraph()`: 使用 spacy.pipe() 批量处理文本
 - `_build_all_hypergraphs_gpu_batch()`: GPU加速版的超图构建
 - `_build_all_hypergraphs_single()`: 原有的单个处理版本
 
@@ -29,9 +31,8 @@ MuSiQue 超图构建工具，支持 GPU 加速和批处理
 
 性能提升：
 - GPU 加速所有 NLP 处理（tokenization, POS, dependency parsing, coref）
-- 批处理文本输入，充分利用 GPU 并行能力
+- 批处理 1024+ 文本一次性输入，充分利用 GPU 并行能力
 - 预先收集，避免重复初始化开销
-- 自动处理长序列问题，确保稳定运行
 """
 
 from argparse import ArgumentParser
@@ -42,7 +43,6 @@ import logging
 
 import spacy
 from tqdm import tqdm
-from tqdm.auto import tqdm as tqdm_auto
 
 from hyper_simulation.component.build_hypergraph import (
     generate_instance_id, 
@@ -58,7 +58,7 @@ logger = logging.getLogger(__name__)
 
 target_dir = "data/debug/musique/sample1000/"
 dataset_path = "/home/vincent/.dataset/musique/sample1000/musique_answerable.jsonl"
-local_model_path = "/home/vincent/.cache/huggingface/hub/models--biu-nlp--lingmess-coref/snapshots/fa5d8a827a09388d03adbe9e800c7d8c509c3935"
+
 
 # ============================================================================
 # GPU 和批处理相关的函数
@@ -69,7 +69,7 @@ def setup_gpu_nlp(model_name: str = "en_core_web_trf") -> spacy.Language:
 	初始化 spacy 模型，启用 GPU 并配置 fastcoref
 	
 	Args:
-		model_name: spacy 模型名称，默认为 'en_core_web_trf'
+		model_name: spacy 模型名称，默认为 'en_core_web_lg'
 	
 	Returns:
 		配置好 GPU 和 fastcoref 的 spacy Language 对象
@@ -97,7 +97,6 @@ def setup_gpu_nlp(model_name: str = "en_core_web_trf") -> spacy.Language:
 				"fastcoref",
 				config={
 					"model_architecture": "LingMessCoref",
-					"model_path": local_model_path,
 					"device": "cuda",  # 使用 GPU
 				}
 			)
@@ -111,18 +110,16 @@ def setup_gpu_nlp(model_name: str = "en_core_web_trf") -> spacy.Language:
 def batch_text_to_hypergraph(
 	nlp: spacy.Language,
 	texts_with_metadata: list[dict],
-	batch_size: int = 32,
+	batch_size: int = 1024,
 	is_query: bool = False,
 ) -> Iterator[tuple[dict, object]]:
 	"""
-	使用 spacy.pipe() 批处理文本转超图，支持自动降级和重试
-	
-	⚠️ fastcoref 对长序列敏感，此函数在出现长度不匹配错误时自动降级
+	使用 spacy.pipe() 批处理文本转超图，充分利用 GPU
 	
 	Args:
 		nlp: 配置好的 spacy Language 对象（已启用 GPU）
 		texts_with_metadata: 文本及其元数据列表，格式为 [{"text": str, "meta": dict}, ...]
-		batch_size: 批处理大小，默认 32（降低以避免长序列问题）
+		batch_size: 批处理大小，默认 1024
 		is_query: 是否为查询文本
 	
 	Yields:
@@ -131,49 +128,65 @@ def batch_text_to_hypergraph(
 	# 提取文本列表
 	texts = [clean_text_for_spacy(item["text"]) for item in texts_with_metadata]
 	metadatas = [item["meta"] for item in texts_with_metadata]
-	original_texts = [item["text"] for item in texts_with_metadata]
 	
 	# fastcoref 配置
 	component_cfg = {"fastcoref": {"resolve_text": True}} if "fastcoref" in nlp.pipe_names else {}
 	
-	# 整批处理（不使用任何 chunk 分块）
-	try:
-		docs_list = list(
-			nlp.pipe(
-				texts,
-				component_cfg=component_cfg,
-				batch_size=max(1, batch_size),
-			)
+	# 使用 nlp.pipe() 批处理，充分利用 GPU
+	# ⚠️ 注意：当存在 fastcoref 时，batch_size 可能需要根据显存大小调整
+	docs = nlp.pipe(
+		texts,
+		component_cfg=component_cfg,
+		batch_size=batch_size,
+	)
+	
+	# 逐个处理 doc，转换为超图
+	for idx, (doc, metadata, original_text) in enumerate(zip(docs, metadatas, [item["text"] for item in texts_with_metadata])):
+		try:
+			# 使用 doc_to_hypergraph 而不是 text_to_hypergraph，避免重复 NLP 处理
+			hypergraph = doc_to_hypergraph(doc, original_text, is_query=is_query)
+			yield metadata, hypergraph
+		except Exception as e:
+			error_msg = f"{type(e).__name__}: {e}"
+			metadata["error"] = error_msg
+			logger.error(f"Error processing text {idx}: {error_msg}")
+			yield metadata, None
+
+
+def build_all_hypergraphs(
+	dataset_path: str,
+	target_dir: str,
+	force_rebuild: bool = False,
+	using_support_only: bool = False,
+	use_gpu_batch: bool = False,
+	batch_size: int = 1024,
+) -> dict:
+	"""
+	构建超图。支持 GPU 加速和批处理。
+	
+	Args:
+		dataset_path: 数据集路径
+		target_dir: 输出目录
+		force_rebuild: 是否强制重建
+		using_support_only: 是否仅使用支持文本
+		use_gpu_batch: 是否使用 GPU + 批处理加速（推荐为 True）
+		batch_size: 批处理大小，仅在 use_gpu_batch=True 时使用
+	"""
+	if use_gpu_batch:
+		return _build_all_hypergraphs_gpu_batch(
+			dataset_path=dataset_path,
+			target_dir=target_dir,
+			force_rebuild=force_rebuild,
+			using_support_only=using_support_only,
+			batch_size=batch_size,
 		)
-
-		for doc, metadata, original_text in zip(docs_list, metadatas, original_texts):
-			try:
-				hypergraph = doc_to_hypergraph(doc, original_text, is_query=is_query)
-				yield metadata, hypergraph
-			except Exception as e:
-				error_msg = f"{type(e).__name__}: {e}"
-				metadata["error"] = error_msg
-				logger.error(f"Error converting doc to hypergraph: {error_msg}")
-				yield metadata, None
-
-	except Exception as e:
-		# 整批失败后，逐条回退
-		logger.warning(
-			f"⚠️ Batch processing failed: {type(e).__name__}: {e}. "
-			"Falling back to per-text processing."
+	else:
+		return _build_all_hypergraphs_single(
+			dataset_path=dataset_path,
+			target_dir=target_dir,
+			force_rebuild=force_rebuild,
+			using_support_only=using_support_only,
 		)
-
-		for text, metadata, original_text in zip(texts, metadatas, original_texts):
-			try:
-				# 单条调用时不传 component_cfg，避免 FastCorefResolver.__call__ 参数不兼容
-				doc = nlp(text)
-				hypergraph = doc_to_hypergraph(doc, original_text, is_query=is_query)
-				yield metadata, hypergraph
-			except Exception as e2:
-				error_msg = f"{type(e2).__name__}: {e2}"
-				metadata["error"] = error_msg
-				logger.error(f"Error processing individual text: {error_msg}")
-				yield metadata, None
 
 
 def _build_all_hypergraphs_single(
@@ -279,7 +292,7 @@ def _build_all_hypergraphs_gpu_batch(
 	target_dir: str,
 	force_rebuild: bool = False,
 	using_support_only: bool = False,
-	batch_size: int = 32,
+	batch_size: int = 1024,
 ) -> dict:
 	"""GPU 加速 + 批处理版本"""
 	logger.info("🚀 Starting GPU-accelerated batch processing...")
@@ -298,12 +311,12 @@ def _build_all_hypergraphs_gpu_batch(
 	# ============================================================================
 	# 第一阶段：收集所有需要处理的查询和上下文文本
 	# ============================================================================
-	logger.info("📋 [阶段1/4] 收集文本...")
+	logger.info("📋 Collecting texts for batch processing...")
 	
 	queries_to_process = []  # [(item, instance_id, instance_dir, query_path, metadata_path)]
 	contexts_to_process = []  # [(item, instance_id, instance_dir, text, idx, item_idx)]
 	
-	for item_idx, item in enumerate(tqdm(data, desc="[阶段1/4] 扫描数据", unit="items")):
+	for item_idx, item in enumerate(tqdm(data, desc="Scanning dataset")):
 		try:
 			qi = build_query_instance_for_task(item, task="musique")
 			question = (qi.query or "").strip()
@@ -359,7 +372,7 @@ def _build_all_hypergraphs_gpu_batch(
 	# 第二阶段：批处理所有查询文本
 	# ============================================================================
 	if queries_to_process:
-		logger.info(f"⚙️ [阶段2/4] 处理查询 ({len(queries_to_process)} 个)...")
+		logger.info(f"⚙️ Batch processing {len(queries_to_process)} query texts...")
 		query_results = {}  # instance_id -> hypergraph
 		
 		queries_batch = [
@@ -376,7 +389,6 @@ def _build_all_hypergraphs_gpu_batch(
 			for q in queries_to_process
 		]
 		
-		query_pbar = tqdm(desc="[阶段2/4] 转换查询超图", total=len(queries_batch), unit="queries")
 		for metadata, hypergraph in batch_text_to_hypergraph(
 			nlp,
 			queries_batch,
@@ -387,14 +399,12 @@ def _build_all_hypergraphs_gpu_batch(
 				query_results[metadata["instance_id"]] = (metadata, hypergraph)
 			else:
 				logger.error(f"Failed to process query for instance {metadata['instance_id']}")
-			query_pbar.update(1)
-		query_pbar.close()
 	
 	# ============================================================================
 	# 第三阶段：批处理所有上下文文本
 	# ============================================================================
 	if contexts_to_process:
-		logger.info(f"⚙️ [阶段3/4] 处理上下文 ({len(contexts_to_process)} 个)...")
+		logger.info(f"⚙️ Batch processing {len(contexts_to_process)} context texts...")
 		context_results = {}  # (instance_id, idx) -> hypergraph
 		
 		contexts_batch = [
@@ -411,7 +421,6 @@ def _build_all_hypergraphs_gpu_batch(
 			for c in contexts_to_process
 		]
 		
-		context_pbar = tqdm(desc="[阶段3/4] 转换上下文超图", total=len(contexts_batch), unit="contexts")
 		for metadata, hypergraph in batch_text_to_hypergraph(
 			nlp,
 			contexts_batch,
@@ -423,18 +432,15 @@ def _build_all_hypergraphs_gpu_batch(
 				context_results[key] = hypergraph
 			else:
 				logger.error(f"Failed to process context for instance {metadata['instance_id']}")
-			context_pbar.update(1)
-		context_pbar.close()
 	
 	# ============================================================================
 	# 第四阶段：保存所有处理结果
 	# ============================================================================
-	logger.info(f"💾 [阶段4/4] 保存结果 ({len(queries_to_process)} 个)...")
+	logger.info("💾 Saving processed hypergraphs...")
 	
 	for item, instance_id, instance_dir, query_path, metadata_path, question, qi in tqdm(
 		queries_to_process,
-		desc="[阶段4/4] 保存超图",
-		unit="instances"
+		desc="Saving results"
 	):
 		try:
 			# 获取查询超图
@@ -518,7 +524,7 @@ def build_all_hypergraphs(
 	force_rebuild: bool = False,
 	using_support_only: bool = False,
 	use_gpu_batch: bool = False,
-	batch_size: int = 32,
+	batch_size: int = 1024,
 ) -> dict:
 	"""
 	构建超图。支持 GPU 加速和批处理。
@@ -529,7 +535,7 @@ def build_all_hypergraphs(
 		force_rebuild: 是否强制重建
 		using_support_only: 是否仅使用支持文本
 		use_gpu_batch: 是否使用 GPU + 批处理加速（推荐为 True）
-		batch_size: 批处理大小，仅在 use_gpu_batch=True 时使用，默认 32
+		batch_size: 批处理大小，仅在 use_gpu_batch=True 时使用
 	"""
 	if use_gpu_batch:
 		return _build_all_hypergraphs_gpu_batch(
@@ -548,44 +554,6 @@ def build_all_hypergraphs(
 		)
 
 
-def _print_summary(summary: dict) -> None:
-	"""格式化打印完成摘要"""
-	print("\n" + "="*70)
-	print("✅ 超图构建完成！")
-	print("="*70)
-	
-	total = summary.get("total_questions", 0)
-	built = summary.get("built", 0)
-	skipped = summary.get("skipped", 0)
-	failed = summary.get("failed", 0)
-	mode = summary.get("mode", "unknown")
-	batch_size = summary.get("batch_size", "N/A")
-	
-	print(f"\n📊 处理统计:")
-	print(f"  ├─ 总数:     {total}")
-	print(f"  ├─ 成功:     {built} ✅")
-	print(f"  ├─ 跳过:     {skipped} ⏭️")
-	print(f"  └─ 失败:     {failed} ❌")
-	
-	print(f"\n⚙️  处理模式:")
-	if mode == "gpu_batch":
-		print(f"  ├─ 方式:     GPU 批处理 🚀")
-		print(f"  └─ batch大小: {batch_size}")
-	else:
-		print(f"  └─ 方式:     单文本处理 🐢")
-	
-	print(f"\n📁 输出目录:")
-	print(f"  └─ {summary.get('target_dir', 'N/A')}")
-	print(f"\n📝 日志文件:")
-	print(f"  ├─ summary.json (已保存)")
-	if failed > 0:
-		print(f"  └─ failed.json (包含 {failed} 条失败记录)")
-	
-	success_rate = (built / total * 100) if total > 0 else 0
-	print(f"\n🎯 成功率: {success_rate:.1f}% ({built}/{total})")
-	print("="*70 + "\n")
-
-
 def main() -> None:
 	parser = ArgumentParser(description="Build and store all MuSiQue question hypergraphs.")
 	parser.add_argument("--dataset-path", type=str, default=dataset_path)
@@ -600,20 +568,10 @@ def main() -> None:
 	parser.add_argument(
 		"--batch-size",
 		type=int,
-		default=32,
-		help="Batch size for GPU batch processing (default: 32, recommended for fastcoref stability)"
+		default=1024,
+		help="Batch size for GPU batch processing (default: 1024)"
 	)
 	args = parser.parse_args()
-
-	print("\n" + "="*70)
-	print("🚀 MuSiQue 超图构建工具")
-	print("="*70)
-	print(f"📂 数据集: {args.dataset_path}")
-	print(f"📁 输出:   {args.target_dir}")
-	print(f"🔧 模式:   {'GPU 批处理 🚀' if args.use_gpu_batch else '单文本处理 🐢'}")
-	if args.use_gpu_batch:
-		print(f"📦 batch大小: {args.batch_size}")
-	print("="*70 + "\n")
 
 	summary = build_all_hypergraphs(
 		dataset_path=args.dataset_path,
@@ -623,10 +581,9 @@ def main() -> None:
 		use_gpu_batch=args.use_gpu_batch,
 		batch_size=args.batch_size,
 	)
-	
-	# 打印格式化的摘要
-	_print_summary(summary)
+	print(json.dumps(summary, indent=2, ensure_ascii=False))
 
 
 if __name__ == "__main__":
 	main()
+

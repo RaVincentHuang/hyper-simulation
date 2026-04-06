@@ -586,28 +586,28 @@ class MultiHopFusion:
         time1 = time.time()
         merged_hg, provenance = self.merge_hypergraphs(evidence_hgs)
         time2 = time.time()
-        print(f"Merge time: {time2 - time1:.2f} seconds")
+        # print(f"Merge time: {time2 - time1:.2f} seconds")
         # 2. Global Simulation
         self.consistent_logger.info("[Multi-hop] Running Hyper Simulation...")
         mapping, q_map, d_map = compute_hyper_simulation(query_hg, merged_hg)
-        for q_id, d_ids in mapping.items():
-            for d_id in d_ids:
-                u = q_map[q_id]
-                v = d_map[d_id]
-                if u.is_verb() or v.is_verb():
-                    continue
-                print(f"Hyper Simulation Match: {u.text()} <-> {v.text()}")
+        # for q_id, d_ids in mapping.items():
+        #     for d_id in d_ids:
+        #         u = q_map[q_id]
+        #         v = d_map[d_id]
+        #         if u.is_verb() or v.is_verb():
+        #             continue
+        #         print(f"Hyper Simulation Match: {u.text()} <-> {v.text()}")
         
         simulation: list[Tuple[Vertex, Vertex]] = [(u, v) for q_id, d_ids in mapping.items() for d_id in d_ids for u in [q_map[q_id]] for v in [d_map[d_id]]]
         
         time3 = time.time()
         final = post_detection(query_hg, merged_hg, simulation)
         time4 = time.time()
-        print(f"Post-processing time: {time4 - time3:.2f} seconds")
-        for u, v in final:
-            if u.is_verb() or v.is_verb():
-                continue
-            print(f"Post-processed Match: {u.text()} <-> {v.text()} [{', '.join(str(id) for id in v.get_provenance())}]")
+        # print(f"Post-processing time: {time4 - time3:.2f} seconds")
+        # for u, v in final:
+        #     if u.is_verb() or v.is_verb():
+        #         continue
+        #     print(f"Post-processed Match: {u.text()} <-> {v.text()} [{', '.join(str(id) for id in v.get_provenance())}]")
         
         self.consistent_logger.info(f"[Multi-hop] Simulation completed: {len(mapping)} query nodes mapped")
         

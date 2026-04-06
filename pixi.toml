@@ -81,6 +81,7 @@ transformers = "==4.25.1"
 spacy-transformers = "==1.1.9"
 jsonlines = ">=4.0.0, <5"
 langchain_core = "*"
+cupy-cuda12x = ">=13.6.0, <14"
 
 [feature.hypergraph.tasks]
 dependency = { cmd = "python tests/test_dependency.py"}
@@ -114,7 +115,7 @@ spacy = ">=3.8.11, <4"
 jsonlines = ">=4.0.0, <5"
 openai = ">=2.30.0, <3"
 faiss-gpu = ">=1.7.0" 
-
+tiktoken = "*"
 [feature.simulation.tasks]
 pre = { cmd = "python tests/test_hypergraph.py"}
 test_contradoc = { cmd = "python tests/test_contradoc.py" }
@@ -142,6 +143,7 @@ title = { cmd = "python tests/tools/title.py" }
 trans = { cmd = "python tests/tools/title_trans.py" }
 remote = { cmd = "python tests/tasks/refine_hypergraph.py" }
 check = { cmd = "python tests/tasks/support_check.py" }
+migrate = { cmd = "python tests/tasks/migrate_vertex_types.py" }
 
 [environments]
 hypergraph = { features = ["hypergraph"] }

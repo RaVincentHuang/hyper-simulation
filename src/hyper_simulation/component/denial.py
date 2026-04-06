@@ -222,8 +222,8 @@ def compute_allowed_pairs_batch(
         is_allowed, reason = denial_comment_by_label_hard(q_vertex, d_vertex, nli_label)  # 仍然调用原函数以保留 QueryType 和实体类型的判断逻辑
         qt = q_vertex.text()
         dt = d_vertex.text()
-        if is_allowed:
-            # print(f"✅ ALLOWED: {q_vertex.text()} <-> {d_vertex.text()}")
+        # if is_allowed:
+        #     print(f"✅ ALLOWED: {q_vertex.text()} <-> {d_vertex.text()}")
         
         log_entry = f"Q{q_id}: '{qt}' vs D{d_id}: '{dt}' (reason: {reason})"
         if is_allowed:
@@ -416,8 +416,8 @@ def denial_comment_by_label_hard(u: Vertex, v: Vertex, label: str) -> Tuple[bool
     ut = u.text().strip()
     vt = v.text().strip()
     
-    if ut == "contestant" and vt == "Chris Daughtry":
-        # print(f"Debug: Special case - allowing 'contestant' [{u.type()}] <-> 'Chris Daughtry' [{v.type()}] regardless of NLI result")
+    # if ut == "contestant" and vt == "Chris Daughtry":
+    #     print(f"Debug: Special case - allowing 'contestant' [{u.type()}] <-> 'Chris Daughtry' [{v.type()}] regardless of NLI result")
 
     if not ut or not vt:
         return False, "Empty text"

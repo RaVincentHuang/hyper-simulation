@@ -1,3 +1,4 @@
+import sentencepiece
 import torch
 from transformers import T5Tokenizer, T5ForConditionalGeneration
 from hyper_simulation.query_instance import QueryInstance

@@ -211,6 +211,7 @@ class Node:
                 lemma=token.lemma_,
                 index=token.i,
             )
+            # print(node)
             
             entity_by_span: ENT | None = abst.get_entity_for_char_index(token.idx)
             if entity_by_span:
@@ -797,23 +798,13 @@ class Dependency:
     # We use links to record the compressed dependencies.
     # collect all the pred non-vertex nodes of a node between vertexes into `former_nodes`.
     def compress_dependencies(self):
-        # Preserve direct grammatical dependencies (dobj, nsubj, etc.) from coreference mapping
-        direct_grammatical_deps = {Dep.nsubj, Dep.dobj, Dep.pobj, Dep.attr, Dep.oprd, Dep.iobj}
-        for node in self.nodes:
-            if node.head and node.head in self.correfence_map and node.dep not in direct_grammatical_deps:
-                node.head = self.correfence_map[node.head]
         for node in self.vertexes:
             if not node.head:
                 continue
             pred = node.head
             while pred and not pred.is_vertex:
-                # print(f"Compressing dependency for node '{node.text}' (head: '{pred.text}'), dep: {node.dep.name}")
-                if pred in self.correfence_map:
-                    # print(f"    - Node '{pred.text}' is mapped to coreference primary '{self.correfence_map[pred].text}'")
-                    pred = self.correfence_map[pred]
-                else:
-                    node.former_nodes.insert(0, pred)  # 插入到头部
-                    pred = pred.head
+                node.former_nodes.insert(0, pred)  # 插入到头部
+                pred = pred.head
             if pred:
                 self.links_pred[node] = pred
                 if pred not in self.links_succ:
@@ -890,11 +881,6 @@ class Dependency:
         cnt = 1
         deferred_coref_nodes: list[Node] = []
         for node in self.vertexes:
-            # print(f"Node '{node.text}'", end="")
-            # if node.coref_primary:
-            #     print(f" (coref primary: '{node.coref_primary.text}')")
-            # else:
-            #     print()
             if node.coref_primary:
                 deferred_coref_nodes.append(node)
                 continue
@@ -913,10 +899,7 @@ class Dependency:
                     entity_map[cnt] = node.ent
                     ent_map[cnt] = node.entity if node.entity is not None else ENT.NOT_ENT
                     cnt += 1
-        # print(f"【……】Deferred coreference nodes to process: {len(deferred_coref_nodes)}")
-        # for node in deferred_coref_nodes:
-        #     print(f"    - Node '{node.text}' (resolved: '{node.resolved_text}') with coref primary '{node.coref_primary.text if node.coref_primary else 'None'}'")
-
+        
         def _assign_or_match_id(node: Node) -> None:
             nonlocal cnt
             base_text = node.resolved_text or node.text
@@ -960,3 +943,29 @@ class Dependency:
         #     print(f"    - Node '{node.text}' (resolved: '{node.resolved_text}') --> Vertex ID {vid}")
         return self.vertexes, relationships, vertex_id_map
 
+# debug: BAD IMPLS
+    # def compress_dependencies(self):
+    #     # Preserve direct grammatical dependencies (dobj, nsubj, etc.) from coreference mapping
+    #     direct_grammatical_deps = {Dep.nsubj, Dep.dobj, Dep.pobj, Dep.attr, Dep.oprd, Dep.iobj}
+    #     for node in self.nodes:
+    #         if node.head and node.head in self.correfence_map and node.dep not in direct_grammatical_deps:
+    #             node.head = self.correfence_map[node.head]
+    #     for node in self.vertexes:
+    #         if not node.head:
+    #             continue
+    #         pred = node.head
+    #         while pred and not pred.is_vertex:
+    #             # print(f"Compressing dependency for node '{node.text}' (head: '{pred.text}'), dep: {node.dep.name}")
+    #             if pred in self.correfence_map:
+    #                 # print(f"    - Node '{pred.text}' is mapped to coreference primary '{self.correfence_map[pred].text}'")
+    #                 pred = self.correfence_map[pred]
+    #             else:
+    #                 node.former_nodes.insert(0, pred)  # 插入到头部
+    #                 pred = pred.head
+    #         if pred:
+    #             self.links_pred[node] = pred
+    #             if pred not in self.links_succ:
+    #                 self.links_succ[pred] = []
+    #             self.links_succ[pred].append(node)
+    #     # print("Dependencies compressed.\n")
+    #     return self

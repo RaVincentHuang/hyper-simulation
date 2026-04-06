@@ -10,7 +10,7 @@ from spacy.tokens import Doc
 from spacy.symbols import ORTH
 
 from hyper_simulation.hypergraph.combine import combine, calc_correfs_str, combine_links
-from hyper_simulation.hypergraph.dependency import Node, LocalDoc, Dependency
+from hyper_simulation.hypergraph.dependency import Node, LocalDoc, Dependency, Relationship
 from hyper_simulation.hypergraph.hypergraph import Hypergraph as LocalHypergraph, Vertex, Node, Hyperedge
 from hyper_simulation.utils.clean import clean_text_for_spacy
 from hyper_simulation.hypergraph.corref import CorrefCluster, mark_corref
@@ -168,6 +168,9 @@ def debug_text_to_hypergraph(
         print("\n[Step 3 - Vertices] (after coreference & vertex construction)")
         # for k, v in id_map.items():
         #     print(f"    Node '{k.text}' in [{v}]")
+        # print relationships
+        for i, rel in enumerate(rels):
+            print(f"[{i}] ({', '.join([node.text for node in rel.entities])}): '{rel.sentence}')")
         vertex_objs = Vertex.from_nodes(vertices, id_map)
         for vertex in sorted(vertex_objs, key=lambda v: v.id):
             print(format_vertex(vertex))
@@ -179,6 +182,7 @@ def debug_text_to_hypergraph(
     if 4 in steps_set:
         print("\n[Step 4 - Hyperedges]")
         for idx, edge in enumerate(hypergraph.hyperedges):
+            edge.assert_nodes_reach_root()
             root_text = edge.root.text()
             vertices = [v.text() for v in edge.vertices]
             print(
@@ -191,7 +195,7 @@ def debug_text_to_hypergraph(
 # The first expedition to reach the geographic South Pole was led by the Norwegian explorer Roald Amundsen. He and four others arrived at the pole on 14 December 1911, five weeks ahead of a British party led by Robert Falcon Scott as part of the Terra Nova Expedition. Amundsen and his team returned safely to their base, and later learned that Scott and his four companions had died on their return journey.
 # Despite being eliminated earlier in the season, Chris Daughtry (as lead of the band Daughtry) became the most successful recording artist from this season. Other contestants, such as Hicks, McPhee, Bucky Covington, Mandisa, Kellie Pickler, and Elliott Yamin have had varying levels of success.
 if __name__ == "__main__":
-    text = """When did voters from the state of the most successful American Idol contestant this season is from once again vote for someone from Mayor Turner's party?
+    text = """CKDH-FM is a Canadian radio station broadcasting at 101.7 FM in Amherst, Nova Scotia, owned by the Maritime Broadcasting System, and currently offers a country music format.
 """
     
     parser = ArgumentParser(description="Debug spaCy dependency pipeline steps.")
@@ -204,4 +208,4 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     steps = _parse_steps(args.steps)
-    debug_text_to_hypergraph(text, output_dir=args.output_dir, steps=steps, is_query=True)
+    debug_text_to_hypergraph(text, output_dir=args.output_dir, steps=steps, is_query=False)

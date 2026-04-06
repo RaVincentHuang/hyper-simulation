@@ -20,11 +20,18 @@ from tqdm import tqdm
 
 from hyper_simulation.component.hyper_simulation import compute_hyper_simulation
 from hyper_simulation.component.postprocess import post_detection
-from hyper_simulation.hypergraph.hypergraph import Hypergraph as LocalHypergraph
+from hyper_simulation.hypergraph.hypergraph import Hypergraph as LocalHypergraph, Vertex
 from hyper_simulation.hypergraph.union import MultiHopFusion
 from hyper_simulation.utils.log import current_query_id
 from refine_hypergraph import load_dataset_index
 
+
+def format_vertex(vertex: Vertex) -> str:
+    nodes = "\n".join(
+        f"    - '{node.text}' (pos={node.pos.name}, dep={node.dep.name}, ent={node.ent.name}, ENT={node.entity.name if node.entity else 'None'})"
+        for node in vertex.nodes
+    )
+    return f"[{vertex.id}] '{vertex.text()}'\n{nodes}"
 
 DEFAULT_INSTANCES_ROOT = "data/debug/musique/sample1000"
 DEFAULT_DATASET_PATH = "/home/vincent/.dataset/musique/sample1000/musique_answerable.jsonl"
@@ -138,6 +145,7 @@ def evaluate_support_batch(
 	dataset_path: str = DEFAULT_DATASET_PATH,
 	limit_instances: int | None = None,
 	max_data_graphs: int | None = None,
+	show_live_score: bool = True,
 ) -> dict[str, Any]:
 	root = Path(instances_root)
 	if not root.exists():
@@ -153,12 +161,25 @@ def evaluate_support_batch(
 
 	target_ids = {path.name for path in instance_dirs}
 	dataset_index = load_dataset_index(dataset_path=dataset_path, target_ids=target_ids)
-	fusion = MultiHopFusion()
+	
 
 	results: list[dict[str, Any]] = []
-	for instance_dir in tqdm(instance_dirs, desc="Support check"):
+	running_metric_keys = [
+		"coverage_recall",
+		"coverage_precision",
+		"coverage_f1",
+		"noise_ratio",
+		"clean_score",
+	]
+	running_sums: dict[str, float] = {key: 0.0 for key in running_metric_keys}
+	running_ok = 0
+	running_skipped = 0
+
+	pbar = tqdm(instance_dirs, desc="Support check")
+	for instance_dir in pbar:
 		item = dataset_index.get(instance_dir.name)
 		if item is None:
+			running_skipped += 1
 			results.append(
 				{
 					"instance_id": instance_dir.name,
@@ -166,10 +187,12 @@ def evaluate_support_batch(
 					"reason": "dataset_item_not_found",
 				}
 			)
+			pbar.set_postfix(ok=running_ok, skip=running_skipped)
 			continue
 
 		query_hg, evidence_items = _load_instance_graphs(instance_dir, item, max_data_graphs=max_data_graphs)
 		if query_hg is None or not evidence_items:
+			running_skipped += 1
 			results.append(
 				{
 					"instance_id": instance_dir.name,
@@ -177,12 +200,23 @@ def evaluate_support_batch(
 					"reason": "missing_graphs",
 				}
 			)
+			pbar.set_postfix(ok=running_ok, skip=running_skipped)
 			continue
 
 		current_query_id.set(instance_dir.name)
 		valid_hgs = [entry["hypergraph"] for entry in evidence_items]
 		supports = set(_support_indices_from_item(item))
-
+		fusion = MultiHopFusion()
+		# print query and data graph info for debugging
+		# print(f"Processing instance: {instance_dir.name}")
+		# print(f"Query hypergraph: {query_hg}")
+		# for entry in evidence_items:
+		# 	# print the text
+		# 	print(f"{entry['text']}")
+		# 	print(f"Data hypergraph (index {entry['index']}): {entry['hypergraph']}")
+		# 	hypergraph = entry["hypergraph"]
+		# 	for vertex in hypergraph.vertices:
+		# 		print(format_vertex(vertex))
 		merged_hg, _provenance = fusion.merge_hypergraphs(valid_hgs)
 		mapping, q_map, d_map = compute_hyper_simulation(query_hg, merged_hg)
 		simulation = [
@@ -209,6 +243,37 @@ def evaluate_support_batch(
 			)
 
 		metrics = _compute_query_metrics(ids=ids, supports=supports)
+		running_ok += 1
+		for key in running_metric_keys:
+			running_sums[key] += float(metrics[key])
+
+		running_means = {
+			key: (running_sums[key] / running_ok if running_ok else 0.0)
+			for key in running_metric_keys
+		}
+		pbar.set_postfix(
+			ok=running_ok,
+			skip=running_skipped,
+			recall=f"{running_means['coverage_recall']:.3f}",
+			precision=f"{running_means['coverage_precision']:.3f}",
+			f1=f"{running_means['coverage_f1']:.3f}",
+			noise=f"{running_means['noise_ratio']:.3f}",
+			clean=f"{running_means['clean_score']:.3f}",
+		)
+
+		if show_live_score:
+			tqdm.write(
+				(
+					f"[{instance_dir.name}] "
+					f"recall={float(metrics['coverage_recall']):.3f}, "
+					f"precision={float(metrics['coverage_precision']):.3f}, "
+					f"f1={float(metrics['coverage_f1']):.3f}, "
+					f"noise={float(metrics['noise_ratio']):.3f}, "
+					f"running_f1={running_means['coverage_f1']:.3f}, "
+					f"running_noise={running_means['noise_ratio']:.3f}"
+				)
+			)
+
 		results.append(
 			{
 				"instance_id": instance_dir.name,
@@ -277,6 +342,7 @@ def main() -> None:
 	parser.add_argument("--limit-instances", type=int, default=0)
 	parser.add_argument("--max-data-graphs", type=int, default=0)
 	parser.add_argument("--output-path", type=str, default="")
+	parser.add_argument("--disable-live-score", action="store_true")
 	args = parser.parse_args()
 
 	report = evaluate_support_batch(
@@ -284,6 +350,7 @@ def main() -> None:
 		dataset_path=args.dataset_path,
 		limit_instances=args.limit_instances or None,
 		max_data_graphs=args.max_data_graphs or None,
+		show_live_score=not args.disable_live_score,
 	)
 
 	if args.output_path:

@@ -1,3 +1,4 @@
+import sentencepiece
 import json
 import re
 import jsonlines

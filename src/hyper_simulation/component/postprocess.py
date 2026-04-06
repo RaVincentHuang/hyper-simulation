@@ -166,30 +166,21 @@ def _get_path_description_batch(
 
         pair_lca_cache[pair_key] = found
         pair_lca_cache[(id(node_b), id(node_a))] = found
-        
-        def display_paths():
-            path_a = []
-            cur = node_a
-            visited = set()
-            while cur is not None and cur not in visited:
-                visited.add(cur)
-                path_a.append(cur)
-                if cur.head == cur:
-                    break
-                cur = cur.head
-            path_b = []
-            cur = node_b
-            visited = set()
-            while cur is not None and cur not in visited:
-                visited.add(cur)
-                path_b.append(cur)
-                if cur.head == cur:
-                    break
-                cur = cur.head
-            return f"({node_a.text}, {node_b.text}) {' -> '.join(n.text for n in path_a)}; {' -> '.join(n.text for n in path_b)}"
-
-        assert found is not None, display_paths()
         return found
+
+    def path_to_ancestor(node: Node, ancestor: Node) -> list[Node] | None:
+        path: list[Node] = []
+        cur = node
+        visited: set[Node] = set()
+        while cur is not None and cur not in visited:
+            visited.add(cur)
+            path.append(cur)
+            if cur == ancestor:
+                return path
+            if cur.head == cur:
+                break
+            cur = cur.head
+        return None
 
     def within_group_path(node_a: Node, node_b: Node, group_idx: int) -> list[Node] | None:
         if node_a not in group_nodes[group_idx] or node_b not in group_nodes[group_idx]:
@@ -197,7 +188,19 @@ def _get_path_description_batch(
 
         root = nearest_common(node_a, node_b)
         if root is None:
-            return None
+            return [node_a, node_b]
+
+        if root == node_a:
+            path = path_to_ancestor(node_b, node_a)
+            if path:
+                return list(reversed(path))
+            return [node_a, node_b]
+
+        if root == node_b:
+            path = path_to_ancestor(node_a, node_b)
+            if path:
+                return path
+            return [node_a, node_b]
 
         path_a: list[Node] = []
         cur = node_a
@@ -236,6 +239,8 @@ def _get_path_description_batch(
             continue
 
         shortest_hyperedges = shortest_map.get((v1, v2), [])
+        # for he in shortest_hyperedges:
+        #     he.assert_nodes_reach_root()
         if not shortest_hyperedges or len(shortest_hyperedges) > hops:
             desc_cache[key] = None
             result[(v1, v2)] = None

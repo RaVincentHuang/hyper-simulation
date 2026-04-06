@@ -408,6 +408,34 @@ class Hyperedge:
         
         assert False, f"Vertex does not contain a node in hyperedge range, Vertex nodes: {vertex.nodes}, Hyperedge range: {self.start}-{self.end}, Hyperedge is {self.desc}"
 
+    def assert_nodes_reach_root(self) -> None:
+        root_node = self.current_node(self.root)
+        assert root_node is not None, f"Root node is missing for hyperedge: {self.desc}"
+
+        for vertex in self.vertices[1:]:
+            if vertex == self.root:
+                continue
+
+            node = self.current_node(vertex)
+            assert node is not None, (
+                f"Vertex '{vertex.text()}' does not map to a node in hyperedge range [{self.start}-{self.end}]: {self.desc}"
+            )
+
+            current = node
+            visited: set[Node] = set()
+            while current is not None and current not in visited:
+                if current == root_node:
+                    break
+                visited.add(current)
+                if current.head == current:
+                    current = None
+                    break
+                current = current.head
+
+            assert current == root_node, (
+                f"Non-root vertex '{vertex.text()}'<{node}> cannot reach root '{self.root.text()}'<{root_node}> via head chain in hyperedge: \n{self.text()}\nwith {', '.join(n.text for n in visited)} <{', '.join(str(n) for n in visited)}>"
+            )
+
     def text(self) -> str:
         """Get a cleaned description using resolved node texts within the sentence range."""
         sentence = self.desc or ""
