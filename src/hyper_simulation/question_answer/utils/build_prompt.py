@@ -1,5 +1,5 @@
 from hyper_simulation.llm.prompt.hotpot_qa import HOTPOT_QA_BASE
-from hyper_simulation.llm.prompt.musique import MUSIQUE_QA_BASE
+from hyper_simulation.llm.prompt.musique import MUSIQUE_QA_HYPER
 from hyper_simulation.llm.prompt.multihop import MULTIHOP_QA_BASE
 from hyper_simulation.llm.prompt.legalbench_qa import LEGALBENCH_QA_BASE
 from hyper_simulation.llm.prompt.legalbench_qa_detailed import QA_CONTRACT_BASE, QA_CONSUMER_BASE, QA_PRIVACY_BASE, QA_RULE_BASE
@@ -10,7 +10,7 @@ from hyper_simulation.llm.prompt.legalbench_corporate_lobbying import LEGALBENCH
 from hyper_simulation.llm.prompt.legalbench_scalr import LEGALBENCH_SCALR_BASE
 from hyper_simulation.llm.prompt.arc import ARC_BASE
 
-def build_prompt(question: str, context_text: str, task: str = "hotpotqa", context_type: str = None) -> str:
+def build_prompt(question: str, context_text: str, task: str = "hotpotqa", context_type: str | None = None) -> str:
     """
     构建用于LLM的prompt，根据不同任务选择相应的模板
     
@@ -28,7 +28,7 @@ def build_prompt(question: str, context_text: str, task: str = "hotpotqa", conte
             question=question
         )
     elif task == "musique":
-        prompt = MUSIQUE_QA_BASE.format(
+        prompt = MUSIQUE_QA_HYPER.format(
             context_text=context_text,
             question=question
         )

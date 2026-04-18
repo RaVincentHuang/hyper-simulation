@@ -46,3 +46,7 @@ pixi run -e hypergraph display --steps 1
 export TRANSFORMERS_OFFLINE="1"
 export HF_DATASETS_OFFLINE="1"
 ```
+
+pixi run -e simulation remote --task docnli --dataset-path data/nli/docnli_50.jsonl --source-root data/debug/docnli/sample50 --max-workers 8 && \
+pixi run -e simulation remote --task econ --dataset-path data/nli/econ_qa.jsonl --source-root data/debug/econ/sample --max-workers 8 && \
+pixi run -e simulation remote --task contract_nli --dataset-path data/nli/contract_nli_split_sample65.jsonl --source-root data/debug/contract_nli/sample65 --max-workers 8

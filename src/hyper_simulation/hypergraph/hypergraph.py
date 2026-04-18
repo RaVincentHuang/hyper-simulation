@@ -552,6 +552,8 @@ class Hyperedge:
 
     def __format__(self, format_spec: str) -> str:
         return f"Hyperedge(desc={self.desc}, vertices={[v.id for v in self.vertices]})"
+    
+    
 
 class Path:
     def __init__(self, hyperedges: list[Hyperedge]) -> None:

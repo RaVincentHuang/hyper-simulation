@@ -18,7 +18,7 @@ from hyper_simulation.hypergraph.combine import combine, calc_correfs_str, combi
 from hyper_simulation.utils.clean import clean_text_for_spacy
 from hyper_simulation.hypergraph.abstraction import TokenEntityAdder
 from hyper_simulation.utils.log import getLogger
-
+from time import time
 from hyper_simulation.hypergraph.corref import CorrefCluster, mark_corref
 from spacy.symbols import ORTH
 
@@ -127,10 +127,13 @@ def doc_to_hypergraph(doc: Doc, text: str, is_query: bool = False) -> LocalHyper
     correfs = calc_correfs_str(doc) if hasattr(doc._, "coref_clusters") else set()
     
     abstractor = TokenEntityAdder("qwen_ontology_mapping.json")
+    t1 = time()
     links_to_merge = combine_links(doc)
     with doc.retokenize() as retokenizer:
         for link in links_to_merge:
             retokenizer.merge(link)
+    t2 = time()
+    print(f"combine_links and retokenize took {t2 - t1:.2f} seconds")
     corref_clusters = CorrefCluster.from_doc(doc)
     spans_to_merge = combine(doc, correfs, is_query=is_query, corefs_clusters=corref_clusters)
     abstractor.set_entity_from_spans(spans_to_merge, doc)
@@ -138,14 +141,20 @@ def doc_to_hypergraph(doc: Doc, text: str, is_query: bool = False) -> LocalHyper
         for span in spans_to_merge:
             if span.start < span.end:
                 retokenizer.merge(span)
+    t3 = time()
+    print(f"combine and retokenize took {t3 - t2:.2f} seconds")
     corref_clusters = CorrefCluster.update_by_doc(corref_clusters, doc)
     nodes, roots = Node.from_doc(doc, abstractor)
     nodes = mark_corref(nodes, corref_clusters)
     local_doc = LocalDoc(doc)
     dep = Dependency(nodes, roots, local_doc, is_query=is_query)
+    t4 = time()
+    print(f"Dependency construction took {t4 - t3:.2f} seconds")
     vertices, rels, id_map = (
         dep.solve_conjunctions().mark_pronoun_antecedents().mark_prefixes().mark_vertex().compress_dependencies().calc_relationships()
     )
+    t5 = time()
+    print(f"Dependency processing took {t5 - t4:.2f} seconds")
     hypergraph = LocalHypergraph.from_rels(vertices, rels, id_map, local_doc)
     hypergraph.original_text = text
     return hypergraph

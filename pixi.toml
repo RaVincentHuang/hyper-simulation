@@ -61,7 +61,7 @@ jsonlines = ">=4.0.0, <5"
 colorama = ">=0.4.6, <0.5"
 keyboard = ">=0.13.5, <0.14"
 prompt-toolkit = ">=3.0.51, <4"
-simulation-alg = ">=0.1.10, <0.2"
+simulation-alg = ">=0.1.14, <0.2"
 
 [feature.hypergraph.dependencies]
 python = "3.10.*"
@@ -82,6 +82,7 @@ spacy-transformers = "==1.1.9"
 jsonlines = ">=4.0.0, <5"
 langchain_core = "*"
 cupy-cuda12x = ">=13.6.0, <14"
+openai = ">=2.31.0, <3"
 
 [feature.hypergraph.tasks]
 dependency = { cmd = "python tests/test_dependency.py"}
@@ -97,6 +98,17 @@ wordnet = { cmd = "python tests/tools/wordnet_X.py" }
 linking = { cmd = "python src/hyper_simulation/hypergraph/linking.py" }
 load = { cmd = "python tests/tools/build.py" }
 musique = { cmd = "python tests/tasks/build_musique.py" }
+hotpotqa = { cmd = "python tests/tasks/build_hotpotqa.py" }
+legalbench = { cmd = "python tests/tasks/build_legalbench.py" }
+multihop = { cmd = "python tests/tasks/build_multihop.py" }
+arc = { cmd = "python tests/tasks/build_arc.py" }
+contract_nli = { cmd = "python tests/tasks/build_contract_nli.py" }
+docnli = { cmd = "python tests/tasks/build_docnli.py" }
+econ = { cmd = "python tests/tasks/build_econ.py" }
+control = { cmd = "python tests/tasks/build_control.py" }
+count ={ cmd = "python tests/tasks/count_tokens.py" }
+split ={ cmd = "python tests/tasks/split_chunk.py" }
+by_token = { cmd = "python tests/tasks/build_by_token_len.py" }
 
 [feature.simulation.dependencies]
 python = "3.10.*"
@@ -104,7 +116,7 @@ sentencepiece = "*"
 protobuf = "*"
 [feature.simulation.pypi-dependencies]
 hyper-simulation = { path = ".", editable = true }
-simulation-alg = ">=0.1.10, <0.2"
+simulation-alg = ">=0.1.14, <0.2"
 numpy = ">=1.26.2,<2"
 nltk = ">=3.9.2, <4"
 pywsd = ">=1.2.5, <2"
@@ -144,6 +156,41 @@ trans = { cmd = "python tests/tools/title_trans.py" }
 remote = { cmd = "python tests/tasks/refine_hypergraph.py" }
 check = { cmd = "python tests/tasks/support_check.py" }
 migrate = { cmd = "python tests/tasks/migrate_vertex_types.py" }
+decompose = { cmd = "python tests/tasks/decompose_question.py" }
+decompose_multihop ={ cmd = "python tests/tasks/decompose_question_multihop.py" }
+musique = { cmd = "python tests/tasks/musique.py" }
+decompose_check ={ cmd = "python tests/tasks/check_decompose_structure.py" }
+musique_baseline = { cmd = "python tests/tasks/musique_baseline.py" }
+hotpotqa = { cmd = "python tests/tasks/hotpotqa.py" }
+legalbench = { cmd = "python tests/tasks/legalbench.py" }
+legalbench_baseline = { cmd = "python tests/tasks/legalbench_baseline.py" }
+multihop = { cmd = "python tests/tasks/multihop.py" }
+
+arc_baseline = { cmd = "python tests/tasks/arc_baseline.py" }
+arc = { cmd = "python tests/tasks/arc.py" }
+econ_baseline = { cmd = "python tests/tasks/econ_baseline.py" }
+econ = { cmd = "python tests/tasks/econ.py" }
+docnli_baseline = { cmd = "python tests/tasks/docnli_baseline.py" }
+docnli = { cmd = "python tests/tasks/docnli.py" }
+contract_nli_baseline = { cmd = "python tests/tasks/contra_nli_baseline.py" }
+contract_nli = { cmd = "python tests/tasks/build_contract_nli.py" }
+control = { cmd = "python tests/tasks/control.py" }
+control_baseline = { cmd = "python tests/tasks/control_baseline.py" }
+
+clean_contract_nli = { cmd = " python tests/tools/clean_contract_nli.py" }
+
+split ={ cmd = "python tests/tasks/split_chunk.py" }
+
+musique_time = { cmd = "python tests/tasks/musique_time.py" }
+hotpotqa_time = { cmd = "python tests/tasks/hotpotqa_time.py" }
+control_time = { cmd = "python tests/tasks/control_time.py" }
+econ_time = { cmd = "python tests/tasks/econ_time.py" }
+
+by_token = { cmd = "python tests/tasks/by_token_len_simulation.py" }
+musique_split_time = { cmd = "python tests/tasks/musique_split_time.py" }
+contract_nli_split_time = { cmd = "python tests/tasks/contract_nli_split_time.py" }
+
+contradoc_time = { cmd = "python tests/tasks/contradoc_time.py" }
 
 [environments]
 hypergraph = { features = ["hypergraph"] }

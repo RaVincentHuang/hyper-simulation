@@ -7,6 +7,9 @@ from hyper_simulation.hypergraph.hypergraph import Hyperedge, Hypergraph, Node, 
 from hyper_simulation.hypergraph.linguistic import Pos, Dep
 from hyper_simulation.utils.log import getLogger
 
+# def _virtual_type_same(t1: ENT, t2: ENT) -> bool:
+#     if t1 in { ENT.CONCEPT }:
+#         return t2 in { ENT.CONCEPT, }
 
 def _strict_type_group(vertex: Vertex) -> str:
     if vertex.is_verb():

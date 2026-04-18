@@ -604,12 +604,12 @@ class MultiHopFusion:
         # final = post_detection(query_hg, merged_hg, simulation)
         # time4 = time.time()
         simulations = get_simulation_slice(query_hg, merged_hg, simulation, len(evidence_hgs))
-        for i, sim in enumerate(simulations):
-            print(f"Simulation slice for evidence [{i + 1}]:")
-            for u, v in sim:
-                if u.is_verb() or v.is_verb() or u.is_adjective() or v.is_adjective() or u.is_adverb() or v.is_adverb():
-                    continue
-                print(f"  Match: {u.text()} <-> {v.text()}")
+        # for i, sim in enumerate(simulations):
+        #     print(f"Simulation slice for evidence [{i + 1}]:")
+        #     for u, v in sim:
+        #         if u.is_verb() or v.is_verb() or u.is_adjective() or v.is_adjective() or u.is_adverb() or v.is_adverb():
+        #             continue
+        #         print(f"  Match: {u.text()} <-> {v.text()}")
         # print(f"Post-processing time: {time4 - time3:.2f} seconds")
         # for u, v in final:
         #     if u.is_verb() or v.is_verb():

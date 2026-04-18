@@ -56,6 +56,7 @@ def build_delta_and_dmatch(
     matched_vertices: dict[Vertex, set[Tuple[Vertex, float]]],
     cluster_sim_threshold: float = 0.75,
     dmatch_threshold: float = 0.3,
+    branch_threshold: int = 5,
     is_multihop: bool = False,
 ) -> Tuple[Delta, DMatch]:
     """
@@ -76,9 +77,16 @@ def build_delta_and_dmatch(
     # Step 1: 多节点语义簇（批量结构化匹配）
     cluster_count = 0
     # === 阶段1：记录原始结果（来自 get_semantic_cluster_pairs）===
-    raw_pairs = calc_semantic_cluster_pairs(query_local_hg, data_local_hg, matched_vertices, cluster_sim_threshold, is_multihop, logger=sc_logger)
+    raw_pairs = calc_semantic_cluster_pairs(
+        query_local_hg, data_local_hg, matched_vertices, 
+        cluster_sim_threshold, branch_threshold, is_multihop, logger=sc_logger
+        )
+    
+    # for i, (sc_q, sc_d, sim_score) in enumerate(raw_pairs):
+    #     print(f"SC PAIR [{i}]:\n- Q: {sc_q.text()}\n- D: {sc_d.text()}\n- Score: {sim_score:.3f}\n")
+    
     time1 = time.time()
-    print(f"Semantic cluster pair calculation time: {time1 - delta_start:.2f} seconds")
+    # print(f"Semantic cluster pair calculation time: {time1 - delta_start:.2f} seconds")
     sc_logger.info(f"语义簇生成完成: 共 {len(raw_pairs)} 个原始簇对")
     # === 阶段2：第一遍循环 - 过滤并收集候选簇对 ===
     candidate_cluster_pairs = []  # list of (sc_q, sc_d, sim_score, metadata_dict)
@@ -217,24 +225,27 @@ def build_delta_and_dmatch(
     sc_logger.info(f"语义簇构建完成: 原始 {len(raw_pairs)} → 有效 {cluster_count} 个簇对")   
     
     # Step 2: 为allowed_pairs中每个节点对创建单节点簇
-    for q_id, d_id in allowed_pairs:
-        sc_id = delta.add_sematic_cluster_pair(
-            Node(q_id, query_texts.get(q_id, "")),
-            Node(d_id, data_texts.get(d_id, "")),
-            query_node_edges.get(q_id, []),
-            data_node_edges.get(d_id, [])
-        )
-        d_delta_matches[(sc_id, sc_id)] = {(q_id, d_id)}  # 单节点簇必有自身匹配
+    # for q_id, d_id in allowed_pairs:
+    #     sc_id = delta.add_sematic_cluster_pair(
+    #         Node(q_id, query_texts.get(q_id, "")),
+    #         Node(d_id, data_texts.get(d_id, "")),
+    #         query_node_edges.get(q_id, []),
+    #         data_node_edges.get(d_id, [])
+    #     )
+    #     d_delta_matches[(sc_id, sc_id)] = {(q_id, d_id)}  # 单节点簇必有自身匹配
     
     time2 = time.time()
-    print(f"D-Match compute time: {time2 - time1:.2f} seconds")
+    # print(f"D-Match compute time: {time2 - time1:.2f} seconds")
     
     return delta, DMatch.from_dict(d_delta_matches)
 
 
 def compute_hyper_simulation(
     query_hg: LocalHypergraph,
-    data_hg: LocalHypergraph
+    data_hg: LocalHypergraph,
+    sigma_threshold: float = 0.75,
+    b_threshold: int = 5,
+    delta_threshold: float = 0.7,
 ) -> Tuple[Dict[int, Set[int]], Dict[int, Vertex], Dict[int, Vertex]]:
     """
     执行超图模拟
@@ -255,12 +266,12 @@ def compute_hyper_simulation(
     time1 = time.time()
     allowed, confidence_scores = compute_allowed_pairs_batch_with_score(q_vertices, d_vertices)
     time2 = time.time()
-    print(f"DC computation time: {time2 - time1:.2f} seconds")
+    # print(f"DC computation time: {time2 - time1:.2f} seconds")
     q_vertices_list = list(q_vertices.values())
     d_vertices_list = list(d_vertices.values())
     time3 = time.time()
     # calc the match_vertices based on the confidence_scores and q_vertices and d_vertices
-    match_vertices = get_top_k_matched_vertices_by_scores(q_vertices, d_vertices, confidence_scores, k=5)
+    match_vertices = get_top_k_matched_vertices_by_scores(q_vertices, d_vertices, confidence_scores, k=b_threshold)
     # match_vertices = get_matched_vertices(q_vertices_list, d_vertices_list)
     # 定义type_same_fn（基于Sim ID空间）
     def type_same_fn(x_id: int, y_id: int) -> bool:
@@ -283,7 +294,9 @@ def compute_hyper_simulation(
         vertex_to_sim_id_q=q_vid_map,
         vertex_to_sim_id_d=d_vid_map,
         matched_vertices=match_vertices,
-        dmatch_threshold=0.7
+        dmatch_threshold=delta_threshold,
+        cluster_sim_threshold=sigma_threshold,
+        branch_threshold=b_threshold
     )
     # time4 = time.time()
     # print(f"Delta and D-Match time: {time4 - time3:.2f} seconds")
@@ -293,6 +306,7 @@ def compute_hyper_simulation(
     start_time = time.time()
     sim_logger.info("\t执行超图模拟...")
     simulation = SimHypergraph.get_hyper_simulation(q_sim, d_sim, delta, d_match)
+    # simulation = SimHypergraph.get_hyper_simulation_strict(q_sim, d_sim, delta, d_match)
     # === 新增：结构化输出 simulation 结果（INFO 级别）===
     sim_logger.info("\t=== Hyper Simulation Mapping ===")
     for q_id, d_ids in sorted(simulation.items()):

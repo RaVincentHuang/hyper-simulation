@@ -1569,7 +1569,10 @@ class SemanticCluster:
                 if e.current_node(e.root) and hasattr(e.current_node(e.root), 'text')
             ).strip()
             self.text_cache = fallback
-            return fallback    
+            return fallback
+        
+    def virtual_text(self) -> str:
+        pass
     
     def _build_signature(self) -> tuple:
         if not self.hyperedges:
@@ -1723,11 +1726,12 @@ def calc_semantic_cluster_pairs(
     hypergraph_q: Hypergraph, 
     hypergraph_d: Hypergraph, 
     likely_map: dict[Vertex, set[Tuple[Vertex, float]]], 
-    cluster_sim_threshold: float = 0.5, 
+    cluster_sim_threshold: float = 0.5,
+    branch_threshold: int = 5,
     is_multihop: bool = False, 
     logger: Optional[logging.Logger] = None
 ) -> list[tuple[SemanticCluster, SemanticCluster, float]]:
-    
+    assert logger is not None
     # ========== 入口日志 ==========
     logger.info(f"[SemanticClusterPairs] Start: Q_edges={len(hypergraph_q.hyperedges)}, "
                    f"D_edges={len(hypergraph_d.hyperedges)}, likely_map={len(likely_map)}, "
@@ -1744,7 +1748,7 @@ def calc_semantic_cluster_pairs(
     logger.info(f"[SemanticClusterPairs] Step2-Done: Computed embeddings for {len(clusters_q)} query clusters")
     
     # ========== Step 3: 获取 Top-K 匹配顶点 ==========
-    K_LIKELY = 5
+    K_LIKELY = branch_threshold
     # likely_map = get_top_k_matched_vertices(matched_vertices, K_LIKELY)
     matched_count = sum(len(v) for v in likely_map.values())
     logger.info(f"[SemanticClusterPairs] Step3-Done: likely_map built with {len(likely_map)} source vertices, "
@@ -1830,9 +1834,9 @@ def calc_semantic_cluster_pairs(
     passed_count = 0
     for (sc_q, sc_d), sim_score in zip(sc_pairs_candidates, sim_scores):
         assert sc_q.embedding is not None and sc_d.embedding is not None, "Embedding should have been calculated"    
+        # print(f"Q: '{sc_q.text()}'\nD: '{sc_d.text()}'\nSim: {sim_score:.4f} that {'<' if sim_score < cluster_sim_threshold else '>='} {cluster_sim_threshold} \n---")
         if sim_score >= cluster_sim_threshold:
             pairs.append((sc_q, sc_d, sim_score))
-            # print(f"Q: '{sc_q.text()}'\nD: '{sc_d.text()}'\nSim: {sim_score:.4f}\n---")
             passed_count += 1
     
     filter_time = time.time() - filter_start

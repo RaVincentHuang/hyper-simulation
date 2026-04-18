@@ -948,3 +948,100 @@ def get_simulation_slice(query: LocalHypergraph, data: LocalHypergraph, simulati
             slices[hg_id - 1].append((u, v))
     
     return slices
+
+def check_slice_consistency(query: LocalHypergraph, simulation_slice: list[tuple[Vertex, Vertex]], vertex_ids: set[int]) -> bool:
+    """
+    检查 simulation_slice 中的 (u, v) 对是否满足一致性要求：
+对于 query 中 id 在 vertex_ids 内的每个 vertex u，simulation_slice 中至少存在一个 v 使得 (u, v) 在其中。
+    
+    返回 True 如果满足一致性
+    """
+    
+    vertex_map: dict[Vertex, set[Vertex]] = {}
+    for u, v in simulation_slice:
+        if u not in vertex_map:
+            vertex_map[u] = set()
+        vertex_map[u].add(v)
+    
+    vertex_needs: set[Vertex] = set()
+    
+    for u in query.vertices:
+        if u.id in vertex_ids:
+            # print(f"- [{u.id}] {u.text()}")
+            vertex_needs.add(u)
+    # returns True if for all u in vertex_needs, there exists a v such that (u, v) in simulation_slice
+    hit_cnt = 0
+    for u in vertex_needs:
+        if u in vertex_map and len(vertex_map[u]) > 0:
+            hit_cnt += 1
+    return hit_cnt == len(vertex_needs)
+
+def refine_simulation_slices(query: LocalHypergraph, simulation_slices: list[list[tuple[Vertex, Vertex]]], answer: str) -> list[list[tuple[Vertex, Vertex]]]:
+    # 基于 answer 对 simulation_slices 进行进一步过滤
+    # 独立操作每个 slice。
+    
+    def _match(v_text: str, answer: str) -> bool:
+        # 简单的文本匹配函数，判断 v_text 是否与 answer 匹配
+        # 这里可以使用更复杂的匹配逻辑，例如包含关系、同义词等
+        return v_text.strip().lower() == answer.strip().lower()
+    
+    refined_slices: list[list[tuple[Vertex, Vertex]]] = []
+    for slice in simulation_slices:
+        new_slice: list[tuple[Vertex, Vertex]] = []
+        # 首先检查 slice 内是否有 (u, v) 满足 v.text() 和 answer 匹配
+        # 若存在匹配，则 保留 (u, v), 而删除其他的 (u, _)
+        # 否则不进行修改
+        matched_map: dict[Vertex, Vertex] = {}
+        for u, v in slice:
+            if v is not None and _match(v.text(), answer):
+                matched_map[u] = v
+                
+        for u, v in matched_map.items():
+            new_slice.append((u, v))
+
+        for u, v in slice:
+            if u in matched_map:
+                continue
+            new_slice.append((u, v))
+                
+        refined_slices.append(new_slice)
+    return refined_slices
+
+def ranking_slices(query: LocalHypergraph, simulation_slices: list[list[tuple[Vertex, Vertex]]], vertex_ids: set[int], k: int) -> list[int]:
+    """
+    对 simulation_slices 做 soft ranking。
+
+    评分定义（精确整数比较，避免浮点误差）：
+    - score = hit_cnt / len(vertex_needs)
+    - 因为 len(vertex_needs) 对所有 slice 恒定，排序可等价为按 hit_cnt 排序
+    - hit_cnt 为该 slice 中命中的 query 目标顶点数量
+    - vertex_needs 为 query 中 id 在 vertex_ids 内的顶点集合
+
+    返回：
+    - 按得分从高到低排序后的 slice 索引列表
+    - 取前 k 时若截断同分项，则保留所有与第 k 名同分的 slice（可能超过 k）
+    """
+    if k <= 0 or not simulation_slices:
+        return []
+
+    vertex_needs: set[Vertex] = {u for u in query.vertices if u.id in vertex_ids}
+    need_cnt = len(vertex_needs)
+
+    scored_indices: list[tuple[int, int]] = []
+    for idx, simulation_slice in enumerate(simulation_slices):
+        present_u: set[Vertex] = {u for u, _ in simulation_slice if u is not None}
+        if need_cnt == 0:
+            hit_cnt = 1
+        else:
+            hit_cnt = sum(1 for u in vertex_needs if u in present_u)
+        scored_indices.append((idx, hit_cnt))
+
+    # 先按命中数降序，再按 index 升序，保证同分时结果稳定。
+    scored_indices.sort(key=lambda x: (-x[1], x[0]))
+
+    if len(scored_indices) <= k:
+        return [idx for idx, _ in scored_indices]
+
+    kth_hit_cnt = scored_indices[k - 1][1]
+    return [idx for idx, hit_cnt in scored_indices if hit_cnt >= kth_hit_cnt]
+    

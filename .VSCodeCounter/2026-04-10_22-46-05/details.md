@@ -1,0 +1,201 @@
+# Details
+
+Date : 2026-04-10 22:46:05
+
+Directory /home/vincent/hyper-simulation
+
+Total : 186 files,  25928 codes, 4693 comments, 5128 blanks, all 35749 lines
+
+[Summary](results.md) / Details / [Diff Summary](diff.md) / [Diff Details](diff-details.md)
+
+## Files
+| filename | language | code | comment | blank | total |
+| :--- | :--- | ---: | ---: | ---: | ---: |
+| [.env](/.env) | Properties | 0 | 0 | 1 | 1 |
+| [GET\_PATH\_DESCRIPTION\_IMPLEMENTATION.md](/GET_PATH_DESCRIPTION_IMPLEMENTATION.md) | Markdown | 190 | 0 | 64 | 254 |
+| [IMPLEMENTATION\_CODE.md](/IMPLEMENTATION_CODE.md) | Markdown | 201 | 0 | 58 | 259 |
+| [NLI\_TRUNCATION\_IMPLEMENTATION.md](/NLI_TRUNCATION_IMPLEMENTATION.md) | Markdown | 82 | 0 | 27 | 109 |
+| [README.md](/README.md) | Markdown | 36 | 0 | 12 | 48 |
+| [check\_arc.py](/check_arc.py) | Python | 9 | 0 | 1 | 10 |
+| [debug\_counts.py](/debug_counts.py) | Python | 20 | 0 | 6 | 26 |
+| [debug\_within\_group\_path.py](/debug_within_group_path.py) | Python | 23 | 9 | 11 | 43 |
+| [docs/guidance/2026-02-04.md](/docs/guidance/2026-02-04.md) | Markdown | 37 | 0 | 13 | 50 |
+| [docs/guidance/2026-02-05.md](/docs/guidance/2026-02-05.md) | Markdown | 26 | 0 | 5 | 31 |
+| [docs/guidance/2026-02-09.md](/docs/guidance/2026-02-09.md) | Markdown | 18 | 0 | 6 | 24 |
+| [docs/guidance/2026-03-12.md](/docs/guidance/2026-03-12.md) | Markdown | 17 | 0 | 8 | 25 |
+| [docs/issue/2026-02-09.md](/docs/issue/2026-02-09.md) | Markdown | 2 | 0 | 1 | 3 |
+| [docs/issue/出现自环.md](/docs/issue/%E5%87%BA%E7%8E%B0%E8%87%AA%E7%8E%AF.md) | Markdown | 13 | 0 | 7 | 20 |
+| [docs/spacy.md](/docs/spacy.md) | Markdown | 288 | 0 | 43 | 331 |
+| [docs/todo/hypergraph.md](/docs/todo/hypergraph.md) | Markdown | 16 | 0 | 3 | 19 |
+| [docs/update/2026-02-12.md](/docs/update/2026-02-12.md) | Markdown | 5 | 0 | 6 | 11 |
+| [find\_missing.py](/find_missing.py) | Python | 21 | 4 | 8 | 33 |
+| [fix\_arc.py](/fix_arc.py) | Python | 19 | 0 | 4 | 23 |
+| [fix\_arc2.py](/fix_arc2.py) | Python | 20 | 1 | 4 | 25 |
+| [fix\_arc3.py](/fix_arc3.py) | Python | 26 | 1 | 7 | 34 |
+| [pixi.toml](/pixi.toml) | TOML | 152 | 0 | 11 | 163 |
+| [pyproject.toml](/pyproject.toml) | TOML | 16 | 0 | 5 | 21 |
+| [scripts/base\_line.sh](/scripts/base_line.sh) | Shell Script | 1 | 7 | 0 | 8 |
+| [scripts/build\_hypergraph.sh](/scripts/build_hypergraph.sh) | Shell Script | 0 | 0 | 1 | 1 |
+| [scripts/cdit.sh](/scripts/cdit.sh) | Shell Script | 1 | 0 | 0 | 1 |
+| [scripts/generate\_embs.sh](/scripts/generate_embs.sh) | Shell Script | 7 | 0 | 1 | 8 |
+| [scripts/hypergragh.sh](/scripts/hypergragh.sh) | Shell Script | 5 | 0 | 0 | 5 |
+| [scripts/save.sh](/scripts/save.sh) | Shell Script | 40 | 8 | 12 | 60 |
+| [simulation/.github/workflows/ci.yml](/simulation/.github/workflows/ci.yml) | YAML | 24 | 0 | 8 | 32 |
+| [simulation/Cargo.toml](/simulation/Cargo.toml) | TOML | 21 | 0 | 5 | 26 |
+| [simulation/README.md](/simulation/README.md) | Markdown | 32 | 0 | 8 | 40 |
+| [simulation/pyproject.toml](/simulation/pyproject.toml) | TOML | 12 | 0 | 2 | 14 |
+| [simulation/python/\_\_init\_\_.py](/simulation/python/__init__.py) | Python | 0 | 0 | 1 | 1 |
+| [simulation/simulation.pyi](/simulation/simulation.pyi) | Python | 8 | 18 | 9 | 35 |
+| [simulation/src/graph/mod.rs](/simulation/src/graph/mod.rs) | Rust | 10 | 0 | 4 | 14 |
+| [simulation/src/graph/networkx\_graph.rs](/simulation/src/graph/networkx_graph.rs) | Rust | 482 | 32 | 96 | 610 |
+| [simulation/src/lib.rs](/simulation/src/lib.rs) | Rust | 14 | 0 | 4 | 18 |
+| [simulation/src/utils.rs](/simulation/src/utils.rs) | Rust | 1 | 0 | 2 | 3 |
+| [simulation/tests/test\_simulation.py](/simulation/tests/test_simulation.py) | Python | 51 | 5 | 19 | 75 |
+| [src/contrievers/\_\_init\_\_.py](/src/contrievers/__init__.py) | Python | 117 | 2 | 18 | 137 |
+| [src/contrievers/beir\_utils.py](/src/contrievers/beir_utils.py) | Python | 180 | 1 | 28 | 209 |
+| [src/contrievers/data.py](/src/contrievers/data.py) | Python | 189 | 4 | 52 | 245 |
+| [src/contrievers/dist\_utils.py](/src/contrievers/dist_utils.py) | Python | 91 | 5 | 33 | 129 |
+| [src/contrievers/evaluation.py](/src/contrievers/evaluation.py) | Python | 115 | 39 | 38 | 192 |
+| [src/contrievers/finetuning\_data.py](/src/contrievers/finetuning_data.py) | Python | 148 | 1 | 24 | 173 |
+| [src/contrievers/inbatch.py](/src/contrievers/inbatch.py) | Python | 64 | 2 | 25 | 91 |
+| [src/contrievers/index.py](/src/contrievers/index.py) | Python | 65 | 12 | 14 | 91 |
+| [src/contrievers/moco.py](/src/contrievers/moco.py) | Python | 92 | 10 | 39 | 141 |
+| [src/contrievers/normalize\_text.py](/src/contrievers/normalize_text.py) | Python | 98 | 43 | 22 | 163 |
+| [src/contrievers/options.py](/src/contrievers/options.py) | Python | 113 | 6 | 14 | 133 |
+| [src/contrievers/pyproject.toml](/src/contrievers/pyproject.toml) | TOML | 18 | 0 | 6 | 24 |
+| [src/contrievers/slurm.py](/src/contrievers/slurm.py) | Python | 56 | 33 | 25 | 114 |
+| [src/contrievers/utils.py](/src/contrievers/utils.py) | Python | 169 | 3 | 43 | 215 |
+| [src/hyper\_simulation/\_\_init\_\_.py](/src/hyper_simulation/__init__.py) | Python | 0 | 0 | 1 | 1 |
+| [src/hyper\_simulation/baselines/BSIM.py](/src/hyper_simulation/baselines/BSIM.py) | Python | 87 | 23 | 19 | 129 |
+| [src/hyper\_simulation/baselines/CDIT.py](/src/hyper_simulation/baselines/CDIT.py) | Python | 27 | 7 | 9 | 43 |
+| [src/hyper\_simulation/baselines/\_\_init\_\_.py](/src/hyper_simulation/baselines/__init__.py) | Python | 0 | 0 | 1 | 1 |
+| [src/hyper\_simulation/baselines/contradoc.py](/src/hyper_simulation/baselines/contradoc.py) | Python | 39 | 8 | 12 | 59 |
+| [src/hyper\_simulation/baselines/sentLI.py](/src/hyper_simulation/baselines/sentLI.py) | Python | 39 | 3 | 9 | 51 |
+| [src/hyper\_simulation/baselines/sparseCL.py](/src/hyper_simulation/baselines/sparseCL.py) | Python | 75 | 18 | 16 | 109 |
+| [src/hyper\_simulation/component/\_\_init\_\_.py](/src/hyper_simulation/component/__init__.py) | Python | 0 | 0 | 1 | 1 |
+| [src/hyper\_simulation/component/build\_hypergraph.py](/src/hyper_simulation/component/build_hypergraph.py) | Python | 227 | 36 | 42 | 305 |
+| [src/hyper\_simulation/component/consistent.py](/src/hyper_simulation/component/consistent.py) | Python | 187 | 19 | 50 | 256 |
+| [src/hyper\_simulation/component/d\_match.py](/src/hyper_simulation/component/d_match.py) | Python | 263 | 46 | 54 | 363 |
+| [src/hyper\_simulation/component/denial.py](/src/hyper_simulation/component/denial.py) | Python | 390 | 59 | 84 | 533 |
+| [src/hyper\_simulation/component/embedding.py](/src/hyper_simulation/component/embedding.py) | Python | 88 | 17 | 31 | 136 |
+| [src/hyper\_simulation/component/hyper\_simulation.py](/src/hyper_simulation/component/hyper_simulation.py) | Python | 241 | 45 | 42 | 328 |
+| [src/hyper\_simulation/component/nli.py](/src/hyper_simulation/component/nli.py) | Python | 72 | 8 | 18 | 98 |
+| [src/hyper\_simulation/component/postprocess.py](/src/hyper_simulation/component/postprocess.py) | Python | 709 | 190 | 148 | 1,047 |
+| [src/hyper\_simulation/component/semantic\_cluster.py](/src/hyper_simulation/component/semantic_cluster.py) | Python | 1,402 | 620 | 411 | 2,433 |
+| [src/hyper\_simulation/graph\_generator/\_\_init\_\_.py](/src/hyper_simulation/graph_generator/__init__.py) | Python | 0 | 0 | 1 | 1 |
+| [src/hyper\_simulation/graph\_generator/build.py](/src/hyper_simulation/graph_generator/build.py) | Python | 249 | 170 | 69 | 488 |
+| [src/hyper\_simulation/graph\_generator/ontology.py](/src/hyper_simulation/graph_generator/ontology.py) | Python | 21 | 6 | 6 | 33 |
+| [src/hyper\_simulation/hypergraph/\_\_init\_\_.py](/src/hyper_simulation/hypergraph/__init__.py) | Python | 0 | 0 | 1 | 1 |
+| [src/hyper\_simulation/hypergraph/abstraction.py](/src/hyper_simulation/hypergraph/abstraction.py) | Python | 114 | 349 | 71 | 534 |
+| [src/hyper\_simulation/hypergraph/combine.py](/src/hyper_simulation/hypergraph/combine.py) | Python | 385 | 95 | 71 | 551 |
+| [src/hyper\_simulation/hypergraph/corref.py](/src/hyper_simulation/hypergraph/corref.py) | Python | 409 | 86 | 81 | 576 |
+| [src/hyper\_simulation/hypergraph/dependency.py](/src/hyper_simulation/hypergraph/dependency.py) | Python | 601 | 264 | 106 | 971 |
+| [src/hyper\_simulation/hypergraph/display.py](/src/hyper_simulation/hypergraph/display.py) | Python | 25 | 0 | 7 | 32 |
+| [src/hyper\_simulation/hypergraph/entity.py](/src/hyper_simulation/hypergraph/entity.py) | Python | 101 | 38 | 9 | 148 |
+| [src/hyper\_simulation/hypergraph/formal.py](/src/hyper_simulation/hypergraph/formal.py) | Python | 0 | 0 | 1 | 1 |
+| [src/hyper\_simulation/hypergraph/graph.py](/src/hyper_simulation/hypergraph/graph.py) | Python | 25 | 2 | 9 | 36 |
+| [src/hyper\_simulation/hypergraph/hypergraph.py](/src/hyper_simulation/hypergraph/hypergraph.py) | Python | 596 | 67 | 118 | 781 |
+| [src/hyper\_simulation/hypergraph/linguistic.py](/src/hyper_simulation/hypergraph/linguistic.py) | Python | 140 | 0 | 12 | 152 |
+| [src/hyper\_simulation/hypergraph/linking.py](/src/hyper_simulation/hypergraph/linking.py) | Python | 315 | 2 | 48 | 365 |
+| [src/hyper\_simulation/hypergraph/path.py](/src/hyper_simulation/hypergraph/path.py) | Python | 229 | 41 | 54 | 324 |
+| [src/hyper\_simulation/hypergraph/union.py](/src/hyper_simulation/hypergraph/union.py) | Python | 410 | 155 | 101 | 666 |
+| [src/hyper\_simulation/llm/\_\_init\_\_.py](/src/hyper_simulation/llm/__init__.py) | Python | 0 | 0 | 1 | 1 |
+| [src/hyper\_simulation/llm/chat\_completion.py](/src/hyper_simulation/llm/chat_completion.py) | Python | 26 | 42 | 12 | 80 |
+| [src/hyper\_simulation/llm/ll.py](/src/hyper_simulation/llm/ll.py) | Python | 9 | 11 | 5 | 25 |
+| [src/hyper\_simulation/llm/prompt/\_\_init\_\_.py](/src/hyper_simulation/llm/prompt/__init__.py) | Python | 0 | 0 | 1 | 1 |
+| [src/hyper\_simulation/llm/prompt/arc.py](/src/hyper_simulation/llm/prompt/arc.py) | Python | 16 | 0 | 0 | 16 |
+| [src/hyper\_simulation/llm/prompt/cdit.py](/src/hyper_simulation/llm/prompt/cdit.py) | Python | 9 | 0 | 3 | 12 |
+| [src/hyper\_simulation/llm/prompt/contradoc.py](/src/hyper_simulation/llm/prompt/contradoc.py) | Python | 35 | 0 | 1 | 36 |
+| [src/hyper\_simulation/llm/prompt/graph.py](/src/hyper_simulation/llm/prompt/graph.py) | Python | 343 | 224 | 29 | 596 |
+| [src/hyper\_simulation/llm/prompt/hotpot\_qa.py](/src/hyper_simulation/llm/prompt/hotpot_qa.py) | Python | 32 | 0 | 1 | 33 |
+| [src/hyper\_simulation/llm/prompt/legalbench\_corporate\_lobbying.py](/src/hyper_simulation/llm/prompt/legalbench_corporate_lobbying.py) | Python | 22 | 0 | 1 | 23 |
+| [src/hyper\_simulation/llm/prompt/legalbench\_insurance.py](/src/hyper_simulation/llm/prompt/legalbench_insurance.py) | Python | 19 | 0 | 1 | 20 |
+| [src/hyper\_simulation/llm/prompt/legalbench\_privacy\_policy\_entailment.py](/src/hyper_simulation/llm/prompt/legalbench_privacy_policy_entailment.py) | Python | 24 | 0 | 0 | 24 |
+| [src/hyper\_simulation/llm/prompt/legalbench\_qa.py](/src/hyper_simulation/llm/prompt/legalbench_qa.py) | Python | 21 | 0 | 1 | 22 |
+| [src/hyper\_simulation/llm/prompt/legalbench\_qa\_detailed.py](/src/hyper_simulation/llm/prompt/legalbench_qa_detailed.py) | Python | 101 | 0 | 3 | 104 |
+| [src/hyper\_simulation/llm/prompt/legalbench\_sara\_entailment.py](/src/hyper_simulation/llm/prompt/legalbench_sara_entailment.py) | Python | 19 | 0 | 0 | 19 |
+| [src/hyper\_simulation/llm/prompt/legalbench\_scalr.py](/src/hyper_simulation/llm/prompt/legalbench_scalr.py) | Python | 18 | 0 | 0 | 18 |
+| [src/hyper\_simulation/llm/prompt/multihop.py](/src/hyper_simulation/llm/prompt/multihop.py) | Python | 14 | 0 | 0 | 14 |
+| [src/hyper\_simulation/llm/prompt/musique.py](/src/hyper_simulation/llm/prompt/musique.py) | Python | 41 | 0 | 3 | 44 |
+| [src/hyper\_simulation/llm/prompt/question.py](/src/hyper_simulation/llm/prompt/question.py) | Python | 111 | 0 | 3 | 114 |
+| [src/hyper\_simulation/llm/prompt/vmdit.py](/src/hyper_simulation/llm/prompt/vmdit.py) | Python | 41 | 5 | 5 | 51 |
+| [src/hyper\_simulation/llm/text\_completion.py](/src/hyper_simulation/llm/text_completion.py) | Python | 10 | 20 | 6 | 36 |
+| [src/hyper\_simulation/llm/time\_cost.py](/src/hyper_simulation/llm/time_cost.py) | Python | 59 | 44 | 26 | 129 |
+| [src/hyper\_simulation/query\_instance.py](/src/hyper_simulation/query_instance.py) | Python | 171 | 13 | 36 | 220 |
+| [src/hyper\_simulation/question\_answer/\_\_init\_\_.py](/src/hyper_simulation/question_answer/__init__.py) | Python | 0 | 0 | 1 | 1 |
+| [src/hyper\_simulation/question\_answer/base\_line\_lm.py](/src/hyper_simulation/question_answer/base_line_lm.py) | Python | 248 | 40 | 29 | 317 |
+| [src/hyper\_simulation/question\_answer/decompose.py](/src/hyper_simulation/question_answer/decompose.py) | Python | 609 | 333 | 80 | 1,022 |
+| [src/hyper\_simulation/question\_answer/generate\_passage\_embedding.py](/src/hyper_simulation/question_answer/generate_passage_embedding.py) | Python | 93 | 7 | 28 | 128 |
+| [src/hyper\_simulation/question\_answer/get\_trim.py](/src/hyper_simulation/question_answer/get_trim.py) | Python | 35 | 2 | 11 | 48 |
+| [src/hyper\_simulation/question\_answer/rag.py](/src/hyper_simulation/question_answer/rag.py) | Python | 217 | 88 | 52 | 357 |
+| [src/hyper\_simulation/question\_answer/rag\_no\_retrival.py](/src/hyper_simulation/question_answer/rag_no_retrival.py) | Python | 408 | 42 | 61 | 511 |
+| [src/hyper\_simulation/question\_answer/retrival/\_\_init\_\_.py](/src/hyper_simulation/question_answer/retrival/__init__.py) | Python | 0 | 0 | 1 | 1 |
+| [src/hyper\_simulation/question\_answer/retrival/analysis.py](/src/hyper_simulation/question_answer/retrival/analysis.py) | Python | 137 | 34 | 19 | 190 |
+| [src/hyper\_simulation/question\_answer/utils/\_\_init\_\_.py](/src/hyper_simulation/question_answer/utils/__init__.py) | Python | 0 | 0 | 1 | 1 |
+| [src/hyper\_simulation/question\_answer/utils/build\_prompt.py](/src/hyper_simulation/question_answer/utils/build_prompt.py) | Python | 106 | 12 | 3 | 121 |
+| [src/hyper\_simulation/question\_answer/utils/load\_data.py](/src/hyper_simulation/question_answer/utils/load_data.py) | Python | 507 | 99 | 93 | 699 |
+| [src/hyper\_simulation/question\_answer/utils/post\_answer.py](/src/hyper_simulation/question_answer/utils/post_answer.py) | Python | 60 | 29 | 16 | 105 |
+| [src/hyper\_simulation/question\_answer/utils/show\_task.py](/src/hyper_simulation/question_answer/utils/show_task.py) | Python | 83 | 4 | 21 | 108 |
+| [src/hyper\_simulation/question\_answer/vmdit/\_\_init\_\_.py](/src/hyper_simulation/question_answer/vmdit/__init__.py) | Python | 0 | 0 | 1 | 1 |
+| [src/hyper\_simulation/question\_answer/vmdit/metrics.py](/src/hyper_simulation/question_answer/vmdit/metrics.py) | Python | 90 | 5 | 22 | 117 |
+| [src/hyper\_simulation/question\_answer/vmdit/relation.py](/src/hyper_simulation/question_answer/vmdit/relation.py) | Python | 79 | 34 | 12 | 125 |
+| [src/hyper\_simulation/question\_answer/vmdit/retrieval.py](/src/hyper_simulation/question_answer/vmdit/retrieval.py) | Python | 208 | 29 | 46 | 283 |
+| [src/hyper\_simulation/question\_answer/vmdit/rewrite.py](/src/hyper_simulation/question_answer/vmdit/rewrite.py) | Python | 46 | 20 | 13 | 79 |
+| [src/hyper\_simulation/question\_answer/vmdit/trim.py](/src/hyper_simulation/question_answer/vmdit/trim.py) | Python | 55 | 5 | 7 | 67 |
+| [src/hyper\_simulation/question\_answer/vmdit/utils.py](/src/hyper_simulation/question_answer/vmdit/utils.py) | Python | 198 | 5 | 37 | 240 |
+| [src/hyper\_simulation/utils/\_\_init\_\_.py](/src/hyper_simulation/utils/__init__.py) | Python | 0 | 0 | 1 | 1 |
+| [src/hyper\_simulation/utils/clean.py](/src/hyper_simulation/utils/clean.py) | Python | 247 | 51 | 59 | 357 |
+| [src/hyper\_simulation/utils/log.py](/src/hyper_simulation/utils/log.py) | Python | 54 | 22 | 13 | 89 |
+| [test\_eval.py](/test_eval.py) | Python | 3 | 0 | 1 | 4 |
+| [test\_import.py](/test_import.py) | Python | 5 | 0 | 1 | 6 |
+| [test\_import\_2.py](/test_import_2.py) | Python | 5 | 0 | 1 | 6 |
+| [test\_metrics.py](/test_metrics.py) | Python | 5 | 0 | 1 | 6 |
+| [test\_norm.py](/test_norm.py) | Python | 3 | 0 | 1 | 4 |
+| [tests/tasks/build\_hotpotqa.py](/tests/tasks/build_hotpotqa.py) | Python | 433 | 32 | 79 | 544 |
+| [tests/tasks/build\_legalbench.py](/tests/tasks/build_legalbench.py) | Python | 437 | 27 | 74 | 538 |
+| [tests/tasks/build\_multihop.py](/tests/tasks/build_multihop.py) | Python | 474 | 25 | 72 | 571 |
+| [tests/tasks/build\_musique.py](/tests/tasks/build_musique.py) | Python | 449 | 105 | 79 | 633 |
+| [tests/tasks/check\_decompose\_structure.py](/tests/tasks/check_decompose_structure.py) | Python | 153 | 0 | 33 | 186 |
+| [tests/tasks/choose\_prompt.py](/tests/tasks/choose_prompt.py) | Python | 90 | 25 | 24 | 139 |
+| [tests/tasks/decompose\_question.py](/tests/tasks/decompose_question.py) | Python | 224 | 6 | 38 | 268 |
+| [tests/tasks/decompose\_question\_multihop.py](/tests/tasks/decompose_question_multihop.py) | Python | 234 | 0 | 39 | 273 |
+| [tests/tasks/hotpotqa.py](/tests/tasks/hotpotqa.py) | Python | 384 | 25 | 82 | 491 |
+| [tests/tasks/legalbench.py](/tests/tasks/legalbench.py) | Python | 435 | 0 | 76 | 511 |
+| [tests/tasks/legalbench\_baseline.py](/tests/tasks/legalbench_baseline.py) | Python | 578 | 3 | 88 | 669 |
+| [tests/tasks/migrate\_vertex\_types.py](/tests/tasks/migrate_vertex_types.py) | Python | 206 | 52 | 36 | 294 |
+| [tests/tasks/multihop.py](/tests/tasks/multihop.py) | Python | 0 | 0 | 1 | 1 |
+| [tests/tasks/musique.py](/tests/tasks/musique.py) | Python | 547 | 26 | 104 | 677 |
+| [tests/tasks/musique\_baseline.py](/tests/tasks/musique_baseline.py) | Python | 560 | 11 | 106 | 677 |
+| [tests/tasks/refine\_hypergraph.py](/tests/tasks/refine_hypergraph.py) | Python | 1,005 | 3 | 140 | 1,148 |
+| [tests/tasks/run\_migration\_when\_ready.sh](/tests/tasks/run_migration_when_ready.sh) | Shell Script | 32 | 5 | 11 | 48 |
+| [tests/tasks/support\_check.py](/tests/tasks/support_check.py) | Python | 455 | 0 | 74 | 529 |
+| [tests/tasks/test\_refine\_hypergraph\_smoke.py](/tests/tasks/test_refine_hypergraph_smoke.py) | Python | 110 | 0 | 16 | 126 |
+| [tests/test\_batch\_convert\_hypergraph.py](/tests/test_batch_convert_hypergraph.py) | Python | 124 | 23 | 30 | 177 |
+| [tests/test\_batch\_simulation.py](/tests/test_batch_simulation.py) | Python | 286 | 35 | 49 | 370 |
+| [tests/test\_cluster.py](/tests/test_cluster.py) | Python | 1 | 0 | 2 | 3 |
+| [tests/test\_combine.py](/tests/test_combine.py) | Python | 19 | 0 | 9 | 28 |
+| [tests/test\_conceptnet.py](/tests/test_conceptnet.py) | Python | 10 | 0 | 2 | 12 |
+| [tests/test\_contradoc.py](/tests/test_contradoc.py) | Python | 19 | 7 | 2 | 28 |
+| [tests/test\_db.py](/tests/test_db.py) | Python | 38 | 5 | 8 | 51 |
+| [tests/test\_dependency.py](/tests/test_dependency.py) | Python | 55 | 12 | 12 | 79 |
+| [tests/test\_dependency\_batch.py](/tests/test_dependency_batch.py) | Python | 68 | 17 | 10 | 95 |
+| [tests/test\_fishing.py](/tests/test_fishing.py) | Python | 26 | 28 | 14 | 68 |
+| [tests/test\_hypergrah\_gen.py](/tests/test_hypergrah_gen.py) | Python | 595 | 117 | 119 | 831 |
+| [tests/test\_hypergraph.py](/tests/test_hypergraph.py) | Python | 20 | 1 | 7 | 28 |
+| [tests/test\_llm.py](/tests/test_llm.py) | Python | 15 | 0 | 2 | 17 |
+| [tests/test\_musique\_base.py](/tests/test_musique_base.py) | Python | 344 | 13 | 17 | 374 |
+| [tests/test\_simulation.py](/tests/test_simulation.py) | Python | 116 | 7 | 22 | 145 |
+| [tests/test\_tool.py](/tests/test_tool.py) | Python | 18 | 1 | 5 | 24 |
+| [tests/tools/build.py](/tests/tools/build.py) | Python | 199 | 21 | 37 | 257 |
+| [tests/tools/dump\_hypergraph.py](/tests/tools/dump_hypergraph.py) | Python | 69 | 21 | 13 | 103 |
+| [tests/tools/enrich.py](/tests/tools/enrich.py) | Python | 218 | 17 | 27 | 262 |
+| [tests/tools/hyper.py](/tests/tools/hyper.py) | Python | 67 | 15 | 18 | 100 |
+| [tests/tools/nli.py](/tests/tools/nli.py) | Python | 54 | 28 | 17 | 99 |
+| [tests/tools/refine.py](/tests/tools/refine.py) | Python | 275 | 2 | 47 | 324 |
+| [tests/tools/spacy\_debug.py](/tests/tools/spacy_debug.py) | Python | 173 | 13 | 26 | 212 |
+| [tests/tools/title.py](/tests/tools/title.py) | Python | 354 | 89 | 29 | 472 |
+| [tests/tools/title\_trans.py](/tests/tools/title_trans.py) | Python | 186 | 15 | 38 | 239 |
+| [tests/tools/wordnet\_X.py](/tests/tools/wordnet_X.py) | Python | 58 | 4 | 17 | 79 |
+| [tests/tools/wordnet\_show.py](/tests/tools/wordnet_show.py) | Python | 146 | 17 | 30 | 193 |
+
+[Summary](results.md) / Details / [Diff Summary](diff.md) / [Diff Details](diff-details.md)

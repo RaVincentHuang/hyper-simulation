@@ -33,3 +33,37 @@ Please strictly follow the format below (do not provide explanations, only the f
 Judgment: yes OR no
 Evidence: [["sentence_from_doc_A", "sentence_from_doc_B"], ...] OR []
 """
+
+contradoc_entailment_prompt = """
+You are an expert at Natural Language Inference for QA pipelines.
+Document A is the hypothesis. Document B is the premise/context.
+
+Your task is to decide whether Document B ENTAILS Document A.
+
+**When to call entailment (Yes):**
+- Document B provides sufficient factual support for the key claims in Document A.
+- Differences in wording, punctuation, or minor paraphrases are acceptable if meaning is preserved.
+
+**When to call non-entailment (No):**
+- Document B is neutral, incomplete, or missing critical support for Document A.
+- Document B contradicts any key claim in Document A.
+
+**Instructions:**
+1. Read hypothesis (Document A) and premise (Document B).
+2. Judge entailment as Yes/No.
+3. If **Yes**: provide minimal supporting evidence as a list of [hypothesis_span, premise_span].
+4. If **No**: provide [] (empty list).
+
+--- Document A (Hypothesis) ---
+{doc_a}
+
+--- Document B (Premise) ---
+{doc_b}
+-----------------------------
+
+**Response Format:**
+Please strictly follow the format below (no extra text):
+
+Judgment: yes OR no
+Evidence: [["sentence_from_doc_A", "supporting_sentence_from_doc_B"], ...] OR []
+"""
